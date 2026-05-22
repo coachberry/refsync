@@ -1,0 +1,50 @@
+.spinner {
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  animation: spin 0.65s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ── Sizes ── */
+.sm  { width: 14px; height: 14px; border-width: 2px; }
+.md  { width: 22px; height: 22px; border-width: 2.5px; }
+.lg  { width: 34px; height: 34px; border-width: 3px; }
+.xl  { width: 48px; height: 48px; border-width: 4px; }
+
+/* ── Colors ── */
+.red   { border-color: var(--red-light);  border-top-color: var(--red); }
+.teal  { border-color: var(--teal-light); border-top-color: var(--teal); }
+.white { border-color: rgba(255,255,255,.25); border-top-color: #fff; }
+.muted { border-color: var(--color-border); border-top-color: var(--color-muted); }
+
+/* ── Page loader ── */
+.page {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background: var(--color-bg);
+}
+
+.message {
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+/* ── Skeleton ── */
+.skeleton {
+  background: linear-gradient(
+    90deg,
+    var(--color-border) 25%,
+    var(--color-bg) 50%,
+    var(--color-border) 75%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.4s infinite;
+}
+
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes shimmer { to { background-position: -200% 0; } }

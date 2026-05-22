@@ -1,0 +1,43 @@
+.avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.initials {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: #fff;
+  font-family: var(--font-display);
+  user-select: none;
+}
+
+/* ── Sizes ── */
+.xs { width: 24px; height: 24px; font-size: 9px; }
+.sm { width: 32px; height: 32px; font-size: 11px; }
+.md { width: 40px; height: 40px; font-size: 14px; }
+.lg { width: 56px; height: 56px; font-size: 19px; }
+.xl { width: 80px; height: 80px; font-size: 26px; }
+
+/* ── Group ── */
+.group {
+  display: flex;
+  align-items: center;
+}
+
+.groupItem {
+  border: 2px solid var(--color-surface);
+  margin-left: -7px;
+}
+.groupItem:first-child { margin-left: 0; }
+
+.overflow {
+  background: var(--color-bg);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  border: 2px solid var(--color-surface);
+}
