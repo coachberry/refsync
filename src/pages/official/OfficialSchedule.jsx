@@ -27,6 +27,8 @@ export default function OfficialSchedule() {
   const [responding, setResponding] = useState(null)
   const [requestNote, setRequestNote] = useState({})
   const [requesting, setRequesting] = useState(null)
+  const [editingRequestId, setEditingRequestId] = useState(null)
+  const [editNoteText, setEditNoteText] = useState('')
 
   // ── Request a game ──────────────────────────────────────────────────────────
   const handleRequest = async (game) => {
@@ -47,6 +49,32 @@ export default function OfficialSchedule() {
       setRequestNote(n => ({ ...n, [game.id]: '' }))
     } catch { toast.error('Failed to request game') }
     finally { setRequesting(null) }
+  }
+
+  // ── Edit a pending request note ─────────────────────────────────────────────
+  const handleEditRequest = async (game, myReq, newNote) => {
+    setResponding(game.id + 'edit')
+    try {
+      const updatedRequests = (game.requests ?? []).map(r =>
+        r.uid === user?.uid ? { ...r, note: newNote } : r
+      )
+      await updateDoc(doc(db, 'games', game.id), { requests: updatedRequests })
+      toast.success('Note updated')
+      setEditingRequestId(null)
+    } catch { toast.error('Failed to update note') }
+    finally { setResponding(null) }
+  }
+
+  // ── Withdraw a pending request ───────────────────────────────────────────────
+  const handleWithdrawRequest = async (game) => {
+    if (!window.confirm('Withdraw your request for this game?')) return
+    setResponding(game.id + 'withdraw')
+    try {
+      const updatedRequests = (game.requests ?? []).filter(r => r.uid !== user?.uid)
+      await updateDoc(doc(db, 'games', game.id), { requests: updatedRequests })
+      toast.success('Request withdrawn')
+    } catch { toast.error('Failed to withdraw request') }
+    finally { setResponding(null) }
   }
 
   // ── Accept / Decline assignment ─────────────────────────────────────────────
@@ -222,6 +250,7 @@ export default function OfficialSchedule() {
               {myRequests.map(game => {
                 const gameDate = game.gameDate?.toDate?.() ?? new Date(game.gameDate)
                 const myReq = (game.requests ?? []).find(r => r.uid === user?.uid)
+                const isEditing = editingRequestId === game.id
                 return (
                   <div key={game.id} className={[styles.gameCard, styles.requestPending].join(' ')}>
                     <div className={styles.gameTop}>
@@ -239,8 +268,35 @@ export default function OfficialSchedule() {
                         <div className={styles.gamePay}>${(game.payRate ?? 0).toFixed(2)}</div>
                       </div>
                     </div>
-                    {myReq?.note && <div className={styles.reqNote}>Your note: "{myReq.note}"</div>}
+
+                    {/* Note — editable */}
+                    {isEditing ? (
+                      <div className={styles.editNoteRow}>
+                        <input
+                          className={styles.noteInput}
+                          value={editNoteText}
+                          onChange={e => setEditNoteText(e.target.value)}
+                          placeholder="Update your note to the scheduler…"
+                          autoFocus
+                        />
+                        <Button size="sm" variant="primary" loading={responding === game.id + 'edit'} onClick={() => handleEditRequest(game, myReq, editNoteText)}>Save</Button>
+                        <Button size="sm" variant="ghost" onClick={() => setEditingRequestId(null)}>Cancel</Button>
+                      </div>
+                    ) : (
+                      <div className={styles.reqNoteRow}>
+                        <span className={styles.reqNote}>{myReq?.note ? `"${myReq.note}"` : 'No note added'}</span>
+                        <button className={styles.editNoteBtn} onClick={() => { setEditingRequestId(game.id); setEditNoteText(myReq?.note ?? '') }}>✏️ Edit note</button>
+                      </div>
+                    )}
+
                     {myReq?.requestedAt && <div className={styles.reqTime}>Requested {format(new Date(myReq.requestedAt), 'MMM d, h:mm a')}</div>}
+
+                    {/* Withdraw button */}
+                    <div className={styles.withdrawRow}>
+                      <Button size="sm" variant="danger" loading={responding === game.id + 'withdraw'} onClick={() => handleWithdrawRequest(game)}>
+                        Withdraw Request
+                      </Button>
+                    </div>
                   </div>
                 )
               })}

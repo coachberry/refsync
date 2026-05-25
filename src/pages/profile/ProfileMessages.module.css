@@ -105,7 +105,7 @@
 .msgMe   { flex-direction: row-reverse; }
 .msgThem { flex-direction: row; }
 
-.bubble { max-width: 68%; padding: 9px 13px; border-radius: 16px; }
+.bubble { padding: 9px 13px; border-radius: 16px; }
 .bubbleMe   { background: var(--blue); color: #fff; border-radius: 16px 16px 4px 16px; }
 .bubbleThem { background: var(--color-surface-2); border-radius: 16px 16px 16px 4px; border: 1px solid var(--color-border); }
 
@@ -173,3 +173,14 @@
   .backBtn { display: flex; }
   .page { height: calc(100vh - var(--topbar-height) - 60px - 32px); }
 }
+
+/* Delete message */
+.bubbleWrap  { display: flex; align-items: flex-end; gap: 4px; max-width: 75%; }
+.deleteMsg {
+  background: none; border: none; cursor: pointer;
+  color: var(--color-muted); font-size: 11px; padding: 2px 4px;
+  border-radius: 4px; opacity: 0; transition: opacity .12s;
+  flex-shrink: 0;
+}
+.msgMe:hover .deleteMsg  { opacity: 1; }
+.deleteMsg:hover { color: var(--red); background: var(--red-light); }

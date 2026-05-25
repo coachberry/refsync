@@ -10,7 +10,8 @@ import {
   subscribeMessages, sendMessage, markThreadRead,
   startThread, getThreadId,
 } from '@/services/messaging'
-import { Card, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
+import { ref, remove } from 'firebase/database'
+import { rtdb } from '@/lib/firebase'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
@@ -202,6 +203,13 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
     finally { setSending(false) }
   }
 
+  const handleDelete = async (msgId) => {
+    if (!threadId || !msgId) return
+    try {
+      await remove(ref(rtdb, `threads/${threadId}/messages/${msgId}`))
+    } catch { toast.error('Failed to delete message') }
+  }
+
   const timeStr = (msg) => {
     try {
       const ts = msg.timestamp
@@ -232,10 +240,15 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
             return (
               <div key={msg.id} className={[styles.msgRow, isMe ? styles.msgMe : styles.msgThem].join(' ')}>
                 {!isMe && <Avatar name={msg.senderName} size="xs" />}
-                <div className={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem].join(' ')}>
-                  {!isMe && <div className={styles.senderName}>{msg.senderName}</div>}
-                  <div className={styles.bubbleText}>{msg.text}</div>
-                  <div className={styles.bubbleTime}>{timeStr(msg)}</div>
+                <div className={styles.bubbleWrap}>
+                  <div className={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem].join(' ')}>
+                    {!isMe && <div className={styles.senderName}>{msg.senderName}</div>}
+                    <div className={styles.bubbleText}>{msg.text}</div>
+                    <div className={styles.bubbleTime}>{timeStr(msg)}</div>
+                  </div>
+                  {isMe && (
+                    <button className={styles.deleteMsg} onClick={() => handleDelete(msg.id)} title="Delete message">✕</button>
+                  )}
                 </div>
               </div>
             )

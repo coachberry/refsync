@@ -30,10 +30,6 @@ const NAV_CONFIG = {
       { to: '/official/schedule',     label: 'Schedule',     icon: CalIcon },
       { to: '/official/availability', label: 'Availability', icon: ClockIcon },
     ]},
-    { section: 'Communication', items: [
-      { to: '/official/inbox', label: 'Inbox', icon: MsgIcon },
-      { to: '/official/news',  label: 'News',  icon: NewsIcon },
-    ]},
     { section: 'My Profile', items: [
       { to: '/official/profile',   label: 'Profile & Stats', icon: UserIcon },
       { to: '/official/expenses',  label: 'Expenses',        icon: ReceiptIcon },
@@ -49,7 +45,6 @@ const NAV_CONFIG = {
     { section: 'Management', items: [
       { to: '/scheduler/roster',   label: 'Roster',   icon: UsersIcon },
       { to: '/scheduler/finance',  label: 'Finance',  icon: DollarIcon },
-      { to: '/scheduler/messages', label: 'Messages', icon: MsgIcon },
       { to: '/scheduler/news',     label: 'News',     icon: NewsIcon },
     ]},
     { section: 'Account', items: [
@@ -65,9 +60,6 @@ const NAV_CONFIG = {
     { section: 'Network', items: [
       { to: '/director/schedulers', label: 'Schedulers', icon: LinkIcon },
       { to: '/director/invoices',   label: 'Invoices',   icon: InvoiceIcon },
-    ]},
-    { section: 'Communication', items: [
-      { to: '/director/messages', label: 'Messages', icon: MsgIcon },
     ]},
     { section: 'Account', items: [
       { to: '/director/settings', label: 'Settings',  icon: SettingsIcon },
