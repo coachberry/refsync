@@ -166,16 +166,6 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
   const [sending, setSending]   = useState(false)
   const bottomRef = useRef(null)
 
-  // thread.id is the RTDB key (e.g. uid1__uid2)
-  // thread.participantId is who we're talking to
-// ── Chat pane ─────────────────────────────────────────────────────────────────
-function ChatPane({ thread, currentUid, currentName, onBack }) {
-  const [messages, setMessages] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [text, setText]         = useState('')
-  const [sending, setSending]   = useState(false)
-  const bottomRef = useRef(null)
-
   // thread.id is the RTDB key = the thread ID
   // Fallback: compute from currentUid + participantId
   const threadId = thread.id
