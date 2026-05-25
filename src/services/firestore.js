@@ -309,3 +309,108 @@ export const markAllNotificationsRead = async (uid) => {
   snap.forEach(d => batch.update(d.ref, { read: true }))
   await batch.commit()
 }
+
+// ─── QUOTES ───────────────────────────────────────────────────────────────────
+export const createQuote = (data) =>
+  addDoc(collection(db, 'quotes'), {
+    ...data,
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  })
+
+export const updateQuote = (id, data) =>
+  updateDoc(doc(db, 'quotes', id), { ...data, updatedAt: serverTimestamp() })
+
+export const subscribeQuotesForGroup = (groupId, callback) => {
+  const q = query(
+    collection(db, 'quotes'),
+    where('groupId', '==', groupId)
+  )
+  return onSnapshot(q, snap =>
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  )
+}
+
+export const subscribeQuotesForScheduler = (schedulerUid, callback) => {
+  const q = query(
+    collection(db, 'quotes'),
+    where('schedulerUid', '==', schedulerUid)
+  )
+  return onSnapshot(q, snap =>
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  )
+}
+
+// ─── RFQ NOTIFICATIONS ────────────────────────────────────────────────────────
+export const sendRFQ = async (groupId, groupData, schedulerUids, directorUid, directorName) => {
+  const batch = writeBatch(db)
+  // Create an RFQ record per scheduler
+  schedulerUids.forEach(uid => {
+    const ref = doc(collection(db, 'rfqs'))
+    batch.set(ref, {
+      groupId,
+      groupName:    groupData.name,
+      directorUid,
+      directorName,
+      schedulerUid: uid,
+      status:       'open',   // open | quoted | accepted | declined
+      gameCount:    groupData.totalGames ?? 0,
+      totalHours:   groupData.totalHours ?? 0,
+      sport:        groupData.sport ?? 'Ice Hockey',
+      startDate:    groupData.startDate ?? null,
+      endDate:      groupData.endDate ?? null,
+      venues:       groupData.venues ?? [],
+      divisions:    groupData.divisions ?? [],
+      officialsNeeded: groupData.officialsNeeded ?? 'both',
+      refInvoiceRate:  groupData.refInvoiceRate ?? null,
+      skInvoiceRate:   groupData.skInvoiceRate  ?? null,
+      createdAt:    serverTimestamp(),
+    })
+    // Notification for scheduler
+    const notifRef = doc(collection(db, 'notifications'))
+    batch.set(notifRef, {
+      uid:     uid,
+      type:    'rfq',
+      title:   'New Game Group — Quote Requested',
+      message: `${directorName} wants you to quote for "${groupData.name}" (${groupData.totalGames ?? 0} games)`,
+      read:    false,
+      link:    '/scheduler',
+      groupId,
+      createdAt: serverTimestamp(),
+    })
+  })
+  await batch.commit()
+}
+
+export const subscribeRFQsForScheduler = (schedulerUid, callback) => {
+  const q = query(
+    collection(db, 'rfqs'),
+    where('schedulerUid', '==', schedulerUid)
+  )
+  return onSnapshot(q, snap =>
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  )
+}
+
+export const subscribeRFQsForDirector = (directorUid, callback) => {
+  const q = query(
+    collection(db, 'rfqs'),
+    where('directorUid', '==', directorUid)
+  )
+  return onSnapshot(q, snap =>
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  )
+}
+
+export const subscribeRFQsForGroup = (groupId, callback) => {
+  const q = query(
+    collection(db, 'rfqs'),
+    where('groupId', '==', groupId)
+  )
+  return onSnapshot(q, snap =>
+    callback(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+  )
+}
+
+export const updateRFQ = (id, data) =>
+  updateDoc(doc(db, 'rfqs', id), { ...data, updatedAt: serverTimestamp() })

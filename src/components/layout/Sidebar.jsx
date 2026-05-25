@@ -38,9 +38,10 @@ const NAV_CONFIG = {
   ],
   scheduler: [
     { section: 'Overview', items: [
-      { to: '/scheduler',        label: 'Dashboard',   icon: HomeIcon },
-      { to: '/scheduler/groups', label: 'Game Groups', icon: CalIcon },
-      { to: '/scheduler/assign', label: 'Assign',      icon: FlagIcon },
+      { to: '/scheduler',        label: 'Dashboard',    icon: HomeIcon },
+      { to: '/scheduler/quotes', label: 'Quote Requests', icon: FlagIcon },
+      { to: '/scheduler/groups', label: 'Game Groups',  icon: CalIcon },
+      { to: '/scheduler/assign', label: 'Assign',       icon: FlagIcon },
     ]},
     { section: 'Management', items: [
       { to: '/scheduler/roster',   label: 'Roster',   icon: UsersIcon },

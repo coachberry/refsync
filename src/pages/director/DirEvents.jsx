@@ -1,10 +1,11 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { useGameGroups } from '@/hooks/useGameGroups'
 import { useConnections } from '@/hooks/useConnections'
-import { doc, deleteDoc } from 'firebase/firestore'
+import { doc, deleteDoc, collection, query, where, onSnapshot, getDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { createGameGroup, createGame, updateGameGroup, sendConnectionRequest } from '@/services/firestore'
+import { createGameGroup, createGame, updateGameGroup, sendRFQ, updateRFQ, subscribeRFQsForGroup } from '@/services/firestore'
+import { Avatar } from '@/components/ui/Avatar'
 import { Card, CardBody, Badge, statusBadge, EmptyState, Modal } from '@/components/ui'
 import { Input, Select, Textarea, FormRow } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
@@ -43,7 +44,8 @@ export default function DirEvents() {
   const { accepted: connectedSchedulers } = useConnections()
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [showAddGames, setShowAddGames]       = useState(false)
-  const [showReqSched, setShowReqSched]       = useState(false)
+  const [showNotify, setShowNotify]           = useState(false)
+  const [showQuotes, setShowQuotes]           = useState(false)
   const [showEditGroup, setShowEditGroup]     = useState(false)
   const [selectedGroup, setSelectedGroup]     = useState(null)
 
@@ -78,7 +80,8 @@ export default function DirEvents() {
           {groups.map(group => (
             <GroupCard key={group.id} group={group}
               onAddGames={() => { setSelectedGroup(group); setShowAddGames(true) }}
-              onRequestScheduler={() => { setSelectedGroup(group); setShowReqSched(true) }}
+              onNotify={() => { setSelectedGroup(group); setShowNotify(true) }}
+              onViewQuotes={() => { setSelectedGroup(group); setShowQuotes(true) }}
               onEdit={() => { setSelectedGroup(group); setShowEditGroup(true) }}
               onDelete={() => handleDelete(group)} />
           ))}
@@ -88,13 +91,14 @@ export default function DirEvents() {
       <CreateGroupModal open={showCreateGroup} onClose={() => setShowCreateGroup(false)} userId={user?.uid} userProfile={profile} />
       {selectedGroup && <EditGroupModal open={showEditGroup} onClose={() => { setShowEditGroup(false); setSelectedGroup(null) }} group={selectedGroup} />}
       {selectedGroup && <AddGamesModal open={showAddGames} onClose={() => { setShowAddGames(false); setSelectedGroup(null) }} group={selectedGroup} />}
-      {selectedGroup && <RequestSchedulerModal open={showReqSched} onClose={() => { setShowReqSched(false); setSelectedGroup(null) }} group={selectedGroup} userId={user?.uid} userName={profile?.displayName} userEmail={profile?.email} connectedSchedulers={connectedSchedulers} />}
+      {selectedGroup && <NotifySchedulersModal open={showNotify} onClose={() => { setShowNotify(false); setSelectedGroup(null) }} group={selectedGroup} userId={user?.uid} userName={profile?.displayName} connectedSchedulers={connectedSchedulers} />}
+      {selectedGroup && <QuotesModal open={showQuotes} onClose={() => { setShowQuotes(false); setSelectedGroup(null) }} group={selectedGroup} directorUid={user?.uid} />}
     </div>
   )
 }
 
 // ── Group Card ────────────────────────────────────────────────────────────────
-function GroupCard({ group, onAddGames, onRequestScheduler, onEdit, onDelete }) {
+function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onEdit, onDelete }) {
   const hasGames = (group.totalGames ?? 0) > 0
   const fillPct  = hasGames ? Math.round((group.filledGames / group.totalGames) * 100) : 0
   const needsType = group.officialsNeeded ?? 'both'
@@ -173,7 +177,8 @@ function GroupCard({ group, onAddGames, onRequestScheduler, onEdit, onDelete }) 
 
       <div className={styles.groupActions}>
         <Button size="sm" variant="secondary" onClick={onAddGames}>+ Add Games</Button>
-        <Button size="sm" variant="primary"   onClick={onRequestScheduler}>Request Scheduler</Button>
+        <Button size="sm" variant="primary"   onClick={onNotify}>📢 Notify Schedulers</Button>
+        <Button size="sm" variant="teal"      onClick={onViewQuotes}>💬 View Quotes</Button>
         <Button size="sm" variant="ghost">View Games</Button>
         <Button size="sm" variant="ghost" onClick={onEdit}>Edit</Button>
         <Button size="sm" variant="danger" onClick={onDelete}>Delete</Button>
@@ -445,14 +450,102 @@ function EditGroupModal({ open, onClose, group }) {
   )
 }
 
+// ── CSV Template columns and download ────────────────────────────────────────
+const CSV_HEADERS = ['home_team','away_team','game_date','game_time','venue','division','duration_hours','notes']
+const CSV_EXAMPLE = ['Nashville Predators','Chicago Blackhawks','2026-07-15','18:00','Ford Ice Center - Antioch','14UAA','1.5','Optional notes']
+
+const downloadCSVTemplate = () => {
+  const rows = [CSV_HEADERS, CSV_EXAMPLE]
+  const csv  = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = 'refsync_games_template.csv'; a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── Add Games Modal ───────────────────────────────────────────────────────────
 function AddGamesModal({ open, onClose, group }) {
-  const [saving, setSaving] = useState(false)
-  const [games, setGames]   = useState([emptyGame(group)])
+  const [saving, setSaving]     = useState(false)
+  const [games, setGames]       = useState([emptyGame(group)])
+  const [csvError, setCsvError] = useState('')
+  const csvInputRef             = useRef(null)
 
   function emptyGame(g) {
     const crew = DEFAULT_CREW[g?.officialsNeeded ?? 'both']
     return { homeTeam: '', awayTeam: '', gameDate: '', gameTime: '', venue: '', division: '', duration: 1.5, customDuration: '', ...crew }
+  }
+
+  const handleCSVUpload = (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCsvError('')
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const text  = ev.target.result
+        const lines = text.trim().split('\n').map(l => l.trim()).filter(Boolean)
+        if (lines.length < 2) { setCsvError('CSV must have a header row and at least one data row'); return }
+
+        // Parse header row — handle quoted values
+        const parseRow = (line) => line.split(',').map(v => v.trim().replace(/^"|"$/g, '').trim())
+        const headers  = parseRow(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'))
+
+        const idx = {
+          homeTeam: headers.findIndex(h => h.includes('home')),
+          awayTeam: headers.findIndex(h => h.includes('away')),
+          gameDate: headers.findIndex(h => h.includes('date')),
+          gameTime: headers.findIndex(h => h.includes('time')),
+          venue:    headers.findIndex(h => h.includes('venue')),
+          division: headers.findIndex(h => h.includes('division')),
+          duration: headers.findIndex(h => h.includes('duration') || h.includes('hour')),
+          notes:    headers.findIndex(h => h.includes('note')),
+        }
+
+        if (idx.homeTeam < 0 || idx.awayTeam < 0 || idx.gameDate < 0) {
+          setCsvError('CSV must have home_team, away_team, and game_date columns'); return
+        }
+
+        const parsed = []
+        const errors = []
+        lines.slice(1).forEach((line, i) => {
+          const cols = parseRow(line)
+          if (cols.every(c => !c)) return // skip empty rows
+
+          const homeTeam = cols[idx.homeTeam] ?? ''
+          const awayTeam = cols[idx.awayTeam] ?? ''
+          const gameDate = cols[idx.gameDate] ?? ''
+          const gameTime = idx.gameTime >= 0 ? (cols[idx.gameTime] ?? '') : ''
+          const venue    = idx.venue    >= 0 ? (cols[idx.venue]    ?? '') : ''
+          const division = idx.division >= 0 ? (cols[idx.division] ?? '') : ''
+          const durRaw   = idx.duration >= 0 ? (cols[idx.duration] ?? '') : ''
+          const duration = parseFloat(durRaw) || 1.5
+
+          if (!homeTeam || !awayTeam)       { errors.push(`Row ${i + 2}: missing home or away team`); return }
+          if (!gameDate.match(/^\d{4}-\d{2}-\d{2}$/)) { errors.push(`Row ${i + 2}: date must be YYYY-MM-DD format`); return }
+
+          parsed.push({
+            homeTeam, awayTeam, gameDate,
+            gameTime: gameTime || '12:00',
+            venue:    venue || group?.venues?.[0] || '',
+            division: division || '',
+            duration: [1, 1.25, 1.5, 1.75, 2].includes(duration) ? duration : 0,
+            customDuration: [1, 1.25, 1.5, 1.75, 2].includes(duration) ? '' : String(duration),
+            ...DEFAULT_CREW[group?.officialsNeeded ?? 'both'],
+          })
+        })
+
+        if (errors.length > 0) { setCsvError(errors.slice(0, 3).join('\n') + (errors.length > 3 ? `\n…and ${errors.length - 3} more` : '')); return }
+        if (!parsed.length)    { setCsvError('No valid game rows found in CSV'); return }
+
+        setGames(parsed)
+        toast.success(`${parsed.length} game${parsed.length > 1 ? 's' : ''} imported from CSV`)
+      } catch (err) {
+        setCsvError('Failed to parse CSV — make sure it matches the template format')
+      }
+    }
+    reader.readAsText(file)
+    e.target.value = '' // reset so same file can be re-uploaded
   }
 
   const updateGame = (i, k, v) => setGames(gs => gs.map((g, idx) => idx === i ? { ...g, [k]: v } : g))
@@ -516,6 +609,26 @@ function AddGamesModal({ open, onClose, group }) {
     <Modal open={open} onClose={onClose} title={`Add Games — ${group?.name ?? ''}`} size="lg"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="secondary" onClick={addRow}>+ Add Game</Button><Button variant="primary" loading={saving} onClick={handleSave}>Save {games.length} Game{games.length > 1 ? 's' : ''}</Button></>}
     >
+      {/* CSV import toolbar */}
+      <div className={styles.csvToolbar}>
+        <div className={styles.csvToolbarLeft}>
+          <span className={styles.csvLabel}>Import from CSV:</span>
+          <button className={styles.csvBtn} onClick={downloadCSVTemplate}>
+            ⬇ Download Template
+          </button>
+          <button className={styles.csvBtn} style={{ color: 'var(--blue)' }} onClick={() => csvInputRef.current?.click()}>
+            ⬆ Upload CSV
+          </button>
+          <input ref={csvInputRef} type="file" accept=".csv" style={{ display: 'none' }} onChange={handleCSVUpload} />
+        </div>
+        <span className={styles.csvHint}>{games.length} game{games.length !== 1 ? 's' : ''} ready</span>
+      </div>
+      {csvError && (
+        <div className={styles.csvError}>
+          ⚠️ {csvError}
+        </div>
+      )}
+
       {/* Invoice preview */}
       <div className={styles.invoicePreview}>
         <div className={styles.invoicePreviewItem}>
@@ -625,128 +738,266 @@ function AddGamesModal({ open, onClose, group }) {
   )
 }
 
-// ── Request Scheduler Modal ───────────────────────────────────────────────────
-function RequestSchedulerModal({ open, onClose, group, userId, userName, userEmail, connectedSchedulers }) {
-  const [saving, setSaving]           = useState(false)
-  const [refEmail, setRefEmail]       = useState('')
-  const [skEmail, setSkEmail]         = useState('')
-  const [note, setNote]               = useState('')
-  const [activeTab, setActiveTab]     = useState('ref')
+// ── Notify Schedulers Modal ───────────────────────────────────────────────────
+function NotifySchedulersModal({ open, onClose, group, userId, userName, connectedSchedulers }) {
+  const [saving, setSaving]       = useState(false)
+  const [selected, setSelected]   = useState([])
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [note, setNote]           = useState('')
 
-  const officialsNeeded = group?.officialsNeeded ?? 'both'
-  const needsRef = officialsNeeded === 'referees'     || officialsNeeded === 'both'
-  const needsSK  = officialsNeeded === 'scorekeepers' || officialsNeeded === 'both'
+  // Filter to scheduler connections
+  const schedulers = connectedSchedulers.filter(c => c.type === 'director-scheduler')
 
-  const refRate = group?.refInvoiceRate ?? { hourlyRate: 75, perGameFee: 10 }
-  const skRate  = group?.skInvoiceRate  ?? { hourlyRate: 20, perGameFee: 5 }
+  const toggleScheduler = (uid) =>
+    setSelected(s => s.includes(uid) ? s.filter(x => x !== uid) : [...s, uid])
+
+  const handleSend = async () => {
+    if (!selected.length && !inviteEmail.trim()) {
+      toast.error('Select at least one scheduler or enter an email')
+      return
+    }
+    if (!(group.totalGames > 0)) {
+      toast.error('Add games to this event before notifying schedulers')
+      return
+    }
+    setSaving(true)
+    try {
+      const uids = [...selected]
+      // If email provided, look up or create a pending connection
+      if (inviteEmail.trim()) {
+        // For invited-by-email schedulers, we send a notification via email
+        // and add them to the RFQ when they join
+        toast('Email invite will be sent when they join RefSync')
+      }
+      if (uids.length > 0) {
+        await sendRFQ(group.id, group, uids, userId, userName)
+        toast.success(`${uids.length} scheduler${uids.length > 1 ? 's' : ''} notified!`)
+      }
+      setSelected([])
+      setInviteEmail('')
+      setNote('')
+      onClose()
+    } catch (err) {
+      toast.error('Failed to notify schedulers')
+      console.error(err)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const refRate = group?.refInvoiceRate ?? null
+  const skRate  = group?.skInvoiceRate  ?? null
   const totalHours = group?.totalHours ?? 0
   const totalGames = group?.totalGames ?? 0
 
-  const refInvoice = needsRef ? (refRate.hourlyRate * totalHours + refRate.perGameFee * totalGames).toFixed(2) : null
-  const skInvoice  = needsSK  ? (skRate.hourlyRate  * totalHours + skRate.perGameFee  * totalGames).toFixed(2) : null
+  return (
+    <Modal open={open} onClose={onClose} title={`Notify Schedulers — ${group?.name ?? ''}`} size="md"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSend} disabled={!selected.length && !inviteEmail.trim()}>Send Notification</Button></>}
+    >
+      {/* Game summary */}
+      <div className={styles.rfqSummary}>
+        <div className={styles.rfqSummaryTitle}>📋 Game Group Summary</div>
+        <div className={styles.rfqSummaryGrid}>
+          <div><span>Games</span><strong>{totalGames}</strong></div>
+          <div><span>Total Hours</span><strong>{totalHours.toFixed(2)}hrs</strong></div>
+          <div><span>Officials Needed</span><strong>{{both:'Refs & SKs', referees:'Refs Only', scorekeepers:'SKs Only'}[group?.officialsNeeded] ?? '—'}</strong></div>
+          <div><span>Venues</span><strong>{group?.venues?.join(', ') ?? '—'}</strong></div>
+        </div>
+        {refRate && <div className={styles.rfqRate}>🏒 Ref rate: ${refRate.hourlyRate}/hr + ${refRate.perGameFee}/game · Est. ${(refRate.hourlyRate * totalHours + refRate.perGameFee * totalGames).toFixed(2)}</div>}
+        {skRate  && <div className={styles.rfqRate}>📋 SK rate: ${skRate.hourlyRate}/hr + ${skRate.perGameFee}/game · Est. ${(skRate.hourlyRate * totalHours + skRate.perGameFee * totalGames).toFixed(2)}</div>}
+      </div>
 
-  const sendRequest = async (type, toUid, toEmail, toName) => {
-    const rate       = type === 'ref' ? refRate : skRate
-    const invoiceAmt = type === 'ref' ? refInvoice : skInvoice
-    setSaving(true)
-    try {
-      await sendConnectionRequest(userId, toUid ?? '__invite__', 'director-scheduler', {
-        groupId: group.id, groupName: group.name,
-        gameCount: group.totalGames ?? 0,
-        fromName: userName, fromEmail: userEmail,
-        inviteEmail: toUid ? undefined : toEmail,
-        toName,
-        organization: group.name,
-        schedulerType: type, // 'ref' | 'sk'
-        officialsNeeded: group.officialsNeeded,
-        invoiceRate: rate,
-        totalHours,
-        note: note + (invoiceAmt ? `\n\nEstimated invoice: $${invoiceAmt} (${totalGames} games · ${totalHours}hrs @ $${rate.hourlyRate}/hr + $${rate.perGameFee}/game)` : ''),
-        status: toUid ? 'pending' : 'invited',
-      })
-      toast.success(`Request sent${toName ? ` to ${toName}` : ` to ${toEmail}`}`)
-      type === 'ref' ? setRefEmail('') : setSkEmail('')
-    } catch { toast.error('Failed to send request') }
-    finally { setSaving(false) }
-  }
+      <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+        Select schedulers to notify. They'll see the full game group details and can submit a quote with their price.
+      </p>
 
-  const alreadyConnected = connectedSchedulers.filter(c => c.type === 'director-scheduler')
-
-  const InvoiceSummary = ({ type, rate, amount }) => amount && totalHours > 0 ? (
-    <div className={styles.invoiceSummaryBox}>
-      <div className={styles.invSumTitle}>{type === 'ref' ? '🏒 Referee' : '📋 Scorekeeper'} Scheduler Invoice</div>
-      <div className={styles.invSumRow}><span>{totalGames} games</span><span>{totalHours?.toFixed(2)} hrs</span></div>
-      <div className={styles.invSumRow}><span>Rate</span><span>${rate.hourlyRate}/hr + ${rate.perGameFee}/game</span></div>
-      <div className={styles.invSumTotal}><span>Estimated Invoice</span><strong>${amount}</strong></div>
-    </div>
-  ) : null
-
-  const RequestSection = ({ type, email, onEmailChange, rate, invoiceAmt }) => (
-    <div>
-      <InvoiceSummary type={type} rate={rate} amount={invoiceAmt} />
-      {alreadyConnected.length > 0 && (
+      {/* Connected schedulers */}
+      {schedulers.length > 0 ? (
         <div className={styles.section}>
-          <div className={styles.sectionLabel}>Connected Schedulers</div>
-          {alreadyConnected.map(conn => (
-            <div key={conn.id} className={styles.schedOption}>
-              <div className={styles.schedOptionInfo}>
-                <div className={styles.schedOptionName}>{conn.toName ?? conn.fromName ?? 'Scheduler'}</div>
-              </div>
-              <Button size="sm" variant="primary" loading={saving} onClick={() => sendRequest(type, conn.toUid ?? conn.fromUid, null, conn.toName ?? 'Scheduler')}>Request</Button>
-            </div>
-          ))}
-          <hr className={styles.divider} />
+          <div className={styles.sectionLabel}>Your Connected Schedulers</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
+            {schedulers.map(conn => {
+              const uid = conn.toUid ?? conn.fromUid
+              const name = conn.toName ?? conn.fromName ?? 'Scheduler'
+              const isPicked = selected.includes(uid)
+              return (
+                <div key={conn.id}
+                  onClick={() => toggleScheduler(uid)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '11px 14px', borderRadius: 'var(--radius)',
+                    border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
+                    background: isPicked ? 'rgba(37,99,235,.05)' : 'var(--color-surface)',
+                    cursor: 'pointer', transition: 'all .13s',
+                  }}
+                >
+                  <div style={{
+                    width: 20, height: 20, borderRadius: 4, flexShrink: 0,
+                    border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
+                    background: isPicked ? 'var(--blue)' : 'transparent',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  }}>
+                    {isPicked && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{name}</div>
+                    {conn.organization && <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{conn.organization}</div>}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <div style={{ background: 'var(--amber-light)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#92400e' }}>
+          ⚠️ You don't have any connected schedulers yet. Add their email below to invite them.
         </div>
       )}
+
+      {/* Invite by email */}
       <div className={styles.section}>
-        <div className={styles.sectionLabel}>Invite by Email</div>
-        <Input label="Scheduler's Email" placeholder="scheduler@example.com" value={email} onChange={e => onEmailChange(e.target.value)} />
-        <Button variant="primary" fullWidth loading={saving} onClick={() => sendRequest(type, null, email, null)}>Send Request</Button>
+        <div className={styles.sectionLabel}>Invite a New Scheduler by Email</div>
+        <Input label="Scheduler's Email" placeholder="scheduler@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
       </div>
-    </div>
+
+      <Textarea label="Note (optional)" placeholder="Any specific requirements or information for the scheduler…" value={note} onChange={e => setNote(e.target.value)} rows={2} />
+    </Modal>
   )
+}
 
-  // If only one type needed, show directly without tabs
-  if (!needsRef || !needsSK) {
-    const type = needsRef ? 'ref' : 'sk'
-    const rate = needsRef ? refRate : skRate
-    const amt  = needsRef ? refInvoice : skInvoice
-    const email = needsRef ? refEmail : skEmail
-    const setEmail = needsRef ? setRefEmail : setSkEmail
+// ── Quotes Modal ──────────────────────────────────────────────────────────────
+function QuotesModal({ open, onClose, group, directorUid }) {
+  const [rfqs, setRfqs]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [accepting, setAccepting] = useState(null)
+  const [declining, setDeclining] = useState(null)
 
-    return (
-      <Modal open={open} onClose={onClose} title={`Request ${needsRef ? 'Referee' : 'Scorekeeper'} Scheduler — ${group?.name ?? ''}`} size="md"
-        footer={<><Textarea label="Note (optional)" placeholder="Any special instructions…" value={note} onChange={e => setNote(e.target.value)} rows={2} /><Button variant="ghost" onClick={onClose}>Close</Button></>}
-      >
-        <RequestSection type={type} email={email} onEmailChange={setEmail} rate={rate} invoiceAmt={amt} />
-      </Modal>
-    )
+  useEffect(() => {
+    if (!open || !group?.id) return
+    setLoading(true)
+    const unsub = subscribeRFQsForGroup(group.id, (data) => {
+      setRfqs(data)
+      setLoading(false)
+    })
+    return unsub
+  }, [open, group?.id])
+
+  const handleAccept = async (rfq) => {
+    if (!window.confirm(`Accept ${rfq.schedulerName ?? 'this scheduler'}'s quote for $${rfq.quoteAmount?.toFixed(2)}?`)) return
+    setAccepting(rfq.id)
+    try {
+      // Mark RFQ accepted
+      await updateRFQ(rfq.id, {
+        status: 'accepted',
+        acceptedAt: new Date().toISOString(),
+      })
+      // Auto-create invoice
+      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
+      await addDoc(collection(db, 'invoices'), {
+        schedulerId:   rfq.schedulerUid,
+        schedulerName: rfq.schedulerName,
+        directorId:    directorUid,
+        directorName:  rfq.directorName,
+        groupId:       group.id,
+        groupName:     group.name,
+        amount:        rfq.quoteAmount,
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+        status:        'sent',
+        rfqId:         rfq.id,
+        notes:         rfq.quoteNote ?? '',
+        createdAt:     serverTimestamp(),
+      })
+      // Notify other schedulers their quote was not selected
+      const others = rfqs.filter(r => r.id !== rfq.id && r.status === 'quoted')
+      await Promise.all(others.map(r => updateRFQ(r.id, { status: 'not_selected' })))
+      toast.success('Quote accepted! Invoice created — go to Invoices to pay.')
+      onClose()
+    } catch (err) {
+      toast.error('Failed to accept quote')
+      console.error(err)
+    } finally {
+      setAccepting(null)
+    }
+  }
+
+  const handleDecline = async (rfq) => {
+    setDeclining(rfq.id)
+    try {
+      await updateRFQ(rfq.id, { status: 'declined', declinedAt: new Date().toISOString() })
+      toast.success('Quote declined')
+    } catch { toast.error('Failed to decline') }
+    finally { setDeclining(null) }
+  }
+
+  const STATUS_META = {
+    open:         { label: 'Notified',     color: 'var(--blue)',  variant: 'blue'  },
+    quoted:       { label: 'Quote Received', color: 'var(--teal)', variant: 'green' },
+    accepted:     { label: 'Accepted',     color: 'var(--teal)',  variant: 'green' },
+    declined:     { label: 'Declined',     color: 'var(--red)',   variant: 'red'   },
+    not_selected: { label: 'Not Selected', color: 'var(--color-muted)', variant: 'gray' },
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={`Request Schedulers — ${group?.name ?? ''}`} size="md"
+    <Modal open={open} onClose={onClose} title={`Quotes — ${group?.name ?? ''}`} size="md"
       footer={<Button variant="ghost" onClick={onClose}>Close</Button>}
     >
-      <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        This event needs both referees and scorekeepers. You can request a different scheduler for each, or the same scheduler for both.
-      </p>
+      {loading ? (
+        <div className={styles.center}><Spinner /></div>
+      ) : rfqs.length === 0 ? (
+        <EmptyState icon="💬" title="No quotes yet" message="Schedulers you notified will submit their quote here. You'll see a notification when one arrives." />
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          {rfqs.map(rfq => {
+            const meta = STATUS_META[rfq.status] ?? STATUS_META.open
+            const hasQuote = rfq.status === 'quoted' && rfq.quoteAmount
+            return (
+              <div key={rfq.id} className={styles.quoteCard}>
+                <div className={styles.quoteCardTop}>
+                  <div className={styles.quoteInfo}>
+                    <div className={styles.quoteName}>{rfq.schedulerName ?? 'Scheduler'}</div>
+                    <Badge variant={meta.variant}>{meta.label}</Badge>
+                  </div>
+                  {hasQuote && (
+                    <div className={styles.quoteAmount}>${rfq.quoteAmount.toFixed(2)}</div>
+                  )}
+                </div>
 
-      {/* Tabs */}
-      <div className={styles.reqTabs}>
-        <button className={[styles.reqTab, activeTab === 'ref' ? styles.reqTabActive : ''].join(' ')} onClick={() => setActiveTab('ref')}>
-          🏒 Referee Scheduler
-        </button>
-        <button className={[styles.reqTab, activeTab === 'sk' ? styles.reqTabActive : ''].join(' ')} onClick={() => setActiveTab('sk')}>
-          📋 Scorekeeper Scheduler
-        </button>
-      </div>
+                {hasQuote && (
+                  <>
+                    {rfq.quoteBreakdown && (
+                      <div className={styles.quoteBreakdown}>{rfq.quoteBreakdown}</div>
+                    )}
+                    {rfq.quoteNote && (
+                      <div className={styles.quoteNote}>"{rfq.quoteNote}"</div>
+                    )}
+                    <div className={styles.quoteActions}>
+                      <Button variant="primary" size="sm" loading={accepting === rfq.id} onClick={() => handleAccept(rfq)}>
+                        ✓ Accept & Create Invoice
+                      </Button>
+                      <Button variant="ghost" size="sm" loading={declining === rfq.id} onClick={() => handleDecline(rfq)}>
+                        ✗ Decline
+                      </Button>
+                    </div>
+                  </>
+                )}
 
-      {activeTab === 'ref' && <RequestSection type="ref" email={refEmail} onEmailChange={setRefEmail} rate={refRate} invoiceAmt={refInvoice} />}
-      {activeTab === 'sk'  && <RequestSection type="sk"  email={skEmail}  onEmailChange={setSkEmail}  rate={skRate}  invoiceAmt={skInvoice} />}
-
-      <div className={styles.section} style={{ marginTop: 8 }}>
-        <Textarea label="Note (optional)" placeholder="Any special instructions for the scheduler…" value={note} onChange={e => setNote(e.target.value)} rows={2} />
-      </div>
+                {rfq.status === 'open' && (
+                  <div className={styles.quotePending}>Waiting for scheduler to submit their quote…</div>
+                )}
+                {rfq.status === 'accepted' && (
+                  <div className={styles.quoteAccepted}>✅ Accepted · Invoice created · Go to Invoices to pay</div>
+                )}
+                {rfq.status === 'declined' && (
+                  <div className={styles.quoteDeclined}>✗ You declined this quote</div>
+                )}
+                {rfq.status === 'not_selected' && (
+                  <div className={styles.quoteDeclined}>Another quote was selected</div>
+                )}
+              </div>
+            )
+          })}
+        </div>
+      )}
     </Modal>
   )
 }

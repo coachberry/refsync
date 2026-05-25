@@ -31,6 +31,7 @@ import SchedRoster     from '@/pages/scheduler/SchedRoster'
 import SchedGameGroups from '@/pages/scheduler/SchedGameGroups'
 import SchedFinance    from '@/pages/scheduler/SchedFinance'
 import SchedNews       from '@/pages/scheduler/SchedNews'
+import SchedQuotes     from '@/pages/scheduler/SchedQuotes'
 
 // Director pages
 import DirDashboard  from '@/pages/director/DirDashboard'
@@ -82,6 +83,7 @@ export default function App() {
       <Route element={<ProtectedRoute requiredRole="scheduler" />}>
         <Route element={<RoleShell role="scheduler" />}>
           <Route path="/scheduler"           element={<SchedDashboard />} />
+          <Route path="/scheduler/quotes"    element={<SchedQuotes />} />
           <Route path="/scheduler/groups"    element={<SchedGameGroups />} />
           <Route path="/scheduler/assign"    element={<SchedAssign />} />
           <Route path="/scheduler/roster"    element={<SchedRoster />} />

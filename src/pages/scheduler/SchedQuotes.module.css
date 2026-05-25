@@ -1,0 +1,43 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+.sectionLabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .7px; color: var(--color-muted); margin-top: 4px; }
+.rfqList { display: flex; flex-direction: column; gap: 12px; }
+
+.rfqCard {
+  background: var(--color-surface); border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.rfqAccepted { border-color: rgba(0,184,153,.3); background: rgba(0,184,153,.02); }
+
+.rfqTop      { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+.rfqLeft     { flex: 1; }
+.rfqName     { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+.rfqDirector { font-size: 13px; color: var(--color-text-2); margin-bottom: 2px; }
+.rfqDate     { font-size: 12px; color: var(--color-muted); }
+
+.rfqDetails {
+  display: grid; grid-template-columns: repeat(4, 1fr);
+  gap: 10px; padding: 12px; border-radius: var(--radius);
+  background: var(--color-surface-2); margin-bottom: 12px;
+}
+.rfqDetail { display: flex; flex-direction: column; gap: 3px; }
+.rfqDetail span { font-size: 11px; color: var(--color-muted); text-transform: uppercase; letter-spacing: .5px; }
+.rfqDetail strong { font-size: 13px; font-weight: 700; }
+
+.rfqBudget { background: var(--ice); border: 1px solid var(--ice-dark); border-radius: var(--radius); padding: 12px 14px; margin-bottom: 12px; }
+.rfqBudgetLabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: #1a6a9e; margin-bottom: 7px; }
+.rfqBudgetRow { font-size: 13px; color: var(--color-text-2); margin-bottom: 3px; }
+
+.rfqQuoteSent { font-size: 13px; color: var(--teal); font-weight: 600; padding: 8px 0; border-top: 1px solid var(--color-border); margin-top: 8px; }
+.rfqActions { padding-top: 12px; border-top: 1px solid var(--color-border); margin-top: 4px; }
+.rfqAcceptedNotice { font-size: 13px; color: var(--teal); font-weight: 600; padding-top: 10px; border-top: 1px solid var(--color-border); margin-top: 8px; }
+.rfqNotSelected { font-size: 13px; color: var(--color-muted); padding-top: 10px; border-top: 1px solid var(--color-border); margin-top: 8px; }
+
+@media (max-width: 600px) {
+  .rfqDetails { grid-template-columns: 1fr 1fr; }
+}
