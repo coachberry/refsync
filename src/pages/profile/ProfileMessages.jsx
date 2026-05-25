@@ -169,10 +169,12 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
   const participantId = thread.participantId
 
   useEffect(() => {
-    if (!threadId) return
+    if (!threadId) { console.warn('ChatPane: no threadId', thread); return }
+    console.log('ChatPane: subscribing to threadId:', threadId, 'participantId:', participantId)
     setLoading(true)
-    setMessages([]) // Clear messages when switching threads
+    setMessages([])
     const unsub = subscribeMessages(threadId, (msgs) => {
+      console.log('ChatPane: got messages:', msgs.length, msgs)
       setMessages(msgs)
       setLoading(false)
       if (currentUid) markThreadRead(currentUid, threadId)

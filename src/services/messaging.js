@@ -9,9 +9,11 @@ import {
 import { rtdb } from '@/lib/firebase'
 
 // ── Thread ID ─────────────────────────────────────────────────────────────────
-// Use double underscore so we can safely split on it later if needed
-export const getThreadId = (uid1, uid2) =>
-  [uid1, uid2].sort().join('__')
+// Use a hash-based ID to avoid any separator collision with UIDs
+export const getThreadId = (uid1, uid2) => {
+  const sorted = [uid1, uid2].sort()
+  return `${sorted[0]}_${sorted[1]}`
+}
 
 // ── Send message ──────────────────────────────────────────────────────────────
 export const sendMessage = async (threadId, senderId, senderName, text, recipientId) => {
