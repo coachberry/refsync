@@ -124,7 +124,7 @@ export default function SchedFinance() {
         <>
           {tab === 'overview' && <OverviewTab invoices={invoices} payments={payments} roster={roster} />}
           {tab === 'invoices' && <InvoicesTab invoices={invoices} onRefresh={fetchFinance} schedulerId={user?.uid} />}
-          {tab === 'payroll'  && <PayrollTab  payments={payments} roster={roster} onRefresh={fetchFinance} />}
+          {tab === 'payroll'  && <PayrollTab  payments={payments} roster={roster} onRefresh={fetchFinance} schedulerId={user?.uid} />}
         </>
       )}
 
@@ -217,18 +217,9 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
   const [updatingId, setUpdatingId] = useState(null)
   const [deletingId, setDeletingId] = useState(null)
 
-  const markPaid = async (invoice) => {
-    setUpdatingId(invoice.id + 'paid')
-    try {
-      await updateDoc(doc(db, 'invoices', invoice.id), { status: 'paid', paidAt: serverTimestamp() })
-      toast.success('Invoice marked as paid')
-      onRefresh()
-    } catch { toast.error('Failed to update invoice') }
-    finally { setUpdatingId(null) }
-  }
-
   const markUnpaid = async (invoice) => {
-    setUpdatingId(invoice.id + 'unpaid')
+    if (!window.confirm('Mark this invoice as unpaid? Use this only to correct a mistake.')) return
+    setUpdatingId(invoice.id)
     try {
       await updateDoc(doc(db, 'invoices', invoice.id), { status: 'sent', paidAt: null })
       toast.success('Invoice marked as unpaid')
@@ -238,12 +229,10 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
   }
 
   const deleteInvoice = async (invoice) => {
-    if (!window.confirm(`Delete invoice ${invoice.invoiceNumber ?? invoice.id.slice(0,6).toUpperCase()}?\n\nThis will remove the invoice from both your Finance page and the director's Invoices page.`)) return
+    if (!window.confirm(`Delete invoice ${invoice.invoiceNumber ?? '#' + invoice.id.slice(0,6).toUpperCase()}?\n\nThis removes it from both your Finance page and the director's Invoices page.`)) return
     setDeletingId(invoice.id)
     try {
-      // Delete the invoice
       await deleteDoc(doc(db, 'invoices', invoice.id))
-      // If group had this as unpaid, clear the flag (best-effort)
       if (invoice.groupId) {
         updateDoc(doc(db, 'gameGroups', invoice.groupId), { hasUnpaidInvoice: false }).catch(() => {})
       }
@@ -251,7 +240,7 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
       onRefresh()
     } catch (err) {
       console.error(err)
-      toast.error('Failed to delete invoice: ' + (err.message ?? err))
+      toast.error('Failed to delete: ' + (err.message ?? err))
     } finally { setDeletingId(null) }
   }
 
@@ -261,6 +250,9 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
 
   return (
     <Card>
+      <div style={{ padding: '10px 16px', background: 'var(--ice)', borderBottom: '1px solid var(--color-border)', fontSize: 12.5, color: '#1a6a9e' }}>
+        💳 Invoices are paid by the Game Director through Stripe. You'll see the status update automatically when payment is received.
+      </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
@@ -277,16 +269,17 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
                 <td className={styles.muted}>{inv.groupName ?? '—'}</td>
                 <td className={styles.amount}>${(inv.amount ?? 0).toLocaleString()}</td>
                 <td className={styles.muted}>{inv.dueDate ? format(new Date(inv.dueDate), 'MMM d, yyyy') : '—'}</td>
-                <td><Badge variant={STATUS_COLORS[inv.status] ?? 'gray'}>{inv.status}</Badge></td>
+                <td>
+                  <Badge variant={STATUS_COLORS[inv.status] ?? 'gray'}>
+                    {inv.status === 'sent' ? 'Awaiting Payment'
+                    : inv.status === 'payment_pending' ? 'Processing'
+                    : inv.status}
+                  </Badge>
+                </td>
                 <td>
                   <div className={styles.rowActions}>
-                    {inv.status !== 'paid' && (
-                      <Button size="sm" variant="teal" loading={updatingId === inv.id + 'paid'} onClick={() => markPaid(inv)}>
-                        Mark Paid
-                      </Button>
-                    )}
                     {inv.status === 'paid' && (
-                      <Button size="sm" variant="ghost" loading={updatingId === inv.id + 'unpaid'} onClick={() => markUnpaid(inv)}>
+                      <Button size="sm" variant="ghost" loading={updatingId === inv.id} onClick={() => markUnpaid(inv)}>
                         Mark Unpaid
                       </Button>
                     )}
@@ -305,25 +298,50 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
 }
 
 // ── Payroll tab ───────────────────────────────────────────────────────────────
-function PayrollTab({ payments, roster, onRefresh }) {
-  const [updatingId, setUpdatingId] = useState(null)
+function PayrollTab({ payments, roster, onRefresh, schedulerId }) {
+  const { user } = useAuth()
+  const [payingId, setPayingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
 
-  const markPaid = async (payment) => {
-    setUpdatingId(payment.id)
+  const handlePay = async (payment) => {
+    setPayingId(payment.id)
     try {
-      await updateDoc(doc(db, 'payments', payment.id), { status: 'paid', paidAt: serverTimestamp() })
-      toast.success(`Payment to ${payment.officialName} marked as paid`)
+      const { payOfficial } = await import('@/services/stripe')
+      await payOfficial(
+        payment.id,
+        schedulerId,
+        payment.officialId,
+        payment.amount,
+        payment.description ?? `Game pay — ${payment.gameCount ?? ''} games`
+      )
+      toast.success(`$${payment.amount} sent to ${payment.officialName}`)
       onRefresh()
-    } catch { toast.error('Failed to update payment') }
-    finally { setUpdatingId(null) }
+    } catch (err) {
+      console.error(err)
+      toast.error('Payment failed: ' + (err.message ?? err))
+    } finally { setPayingId(null) }
+  }
+
+  const deletePayment = async (payment) => {
+    if (!window.confirm(`Delete this payment record for ${payment.officialName}?`)) return
+    setDeletingId(payment.id)
+    try {
+      await deleteDoc(doc(db, 'payments', payment.id))
+      toast.success('Payment record deleted')
+      onRefresh()
+    } catch (err) { toast.error('Failed to delete') }
+    finally { setDeletingId(null) }
   }
 
   if (payments.length === 0) return (
-    <Card><CardBody><EmptyState icon="💰" title="No payroll records yet" message="Use '+ Pay Official' to record payments to officials on your roster." /></CardBody></Card>
+    <Card><CardBody><EmptyState icon="💰" title="No payroll records yet" message="Use '+ Pay Official' to record a payment to an official on your roster." /></CardBody></Card>
   )
 
   return (
     <Card>
+      <div style={{ padding: '10px 16px', background: 'var(--ice)', borderBottom: '1px solid var(--color-border)', fontSize: 12.5, color: '#1a6a9e' }}>
+        💳 Payments are sent via Stripe to officials' connected bank accounts. Officials must connect their Stripe account in Profile → Finances to receive payments.
+      </div>
       <div className={styles.tableWrap}>
         <table className={styles.table}>
           <thead>
@@ -345,14 +363,21 @@ function PayrollTab({ payments, roster, onRefresh }) {
                 <td className={styles.muted}>{pay.gameCount ?? '—'}</td>
                 <td className={styles.amount}>${(pay.amount ?? 0).toLocaleString()}</td>
                 <td className={styles.muted}>{pay.createdAt ? format(pay.createdAt.toDate?.() ?? new Date(pay.createdAt), 'MMM d') : '—'}</td>
-                <td><Badge variant={STATUS_COLORS[pay.status] ?? 'gray'}>{pay.status}</Badge></td>
+                <td>
+                  <Badge variant={pay.status === 'paid' ? 'green' : pay.status === 'processing' ? 'amber' : 'gray'}>
+                    {pay.status === 'paid' ? 'Paid' : pay.status === 'processing' ? 'Processing' : 'Pending'}
+                  </Badge>
+                </td>
                 <td>
                   <div className={styles.rowActions}>
                     {pay.status === 'pending' && (
-                      <Button size="sm" variant="teal" loading={updatingId === pay.id} onClick={() => markPaid(pay)}>
-                        Mark Paid
+                      <Button size="sm" variant="teal" loading={payingId === pay.id} onClick={() => handlePay(pay)}>
+                        Pay via Stripe
                       </Button>
                     )}
+                    <Button size="sm" variant="danger" loading={deletingId === pay.id} onClick={() => deletePayment(pay)}>
+                      Delete
+                    </Button>
                   </div>
                 </td>
               </tr>
