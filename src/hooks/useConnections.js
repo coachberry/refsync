@@ -56,7 +56,8 @@ export function useConnections() {
   }
 
   const pendingIncoming = incoming.filter(c => c.status === 'pending')
+  const pendingOutgoing = outgoing.filter(c => c.status === 'pending')
   const accepted = [...incoming, ...outgoing].filter(c => c.status === 'accepted')
 
-  return { incoming, outgoing, pendingIncoming, accepted, loading, accept, decline, sendRequest }
+  return { incoming, outgoing, pendingIncoming, pendingOutgoing, accepted, loading, accept, decline, sendRequest }
 }
