@@ -96,9 +96,35 @@ function RFQCard({ rfq, onQuote }) {
   const receivedAt = rfq.createdAt?.toDate?.() ?? (rfq.createdAt ? new Date(rfq.createdAt) : null)
   const totalHours = rfq.totalHours ?? 0
   const totalGames = rfq.gameCount  ?? 0
+  const [games, setGames]         = useState([])
+  const [gamesLoading, setGamesLoading] = useState(false)
+  const [expanded, setExpanded]   = useState(false)
+
+  // Load games when card is expanded
+  useEffect(() => {
+    if (!expanded || !rfq.groupId || games.length > 0) return
+    setGamesLoading(true)
+    getDocs(query(collection(db, 'games'), where('groupId', '==', rfq.groupId)))
+      .then(snap => {
+        const g = snap.docs
+          .map(d => ({ id: d.id, ...d.data() }))
+          .sort((a, b) => {
+            const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
+            const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
+            return da - db_
+          })
+        setGames(g)
+      })
+      .finally(() => setGamesLoading(false))
+  }, [expanded, rfq.groupId])
+
+  // Unique durations
+  const durations = [...new Set((rfq.divisions ?? []).map(d => d).concat([]))]
+  const officialsLabel = { both: '🏒📋 Referees & Scorekeepers', referees: '🏒 Referees Only', scorekeepers: '📋 Scorekeepers Only' }[rfq.officialsNeeded] ?? '—'
 
   return (
     <div className={[styles.rfqCard, rfq.status === 'accepted' ? styles.rfqAccepted : ''].join(' ')}>
+      {/* Header */}
       <div className={styles.rfqTop}>
         <div className={styles.rfqLeft}>
           <div className={styles.rfqName}>{rfq.groupName}</div>
@@ -108,26 +134,100 @@ function RFQCard({ rfq, onQuote }) {
         <Badge variant={meta.variant}>{meta.icon} {meta.label}</Badge>
       </div>
 
+      {/* Summary stats */}
       <div className={styles.rfqDetails}>
-        <div className={styles.rfqDetail}><span>🏒 Games</span><strong>{totalGames}</strong></div>
-        <div className={styles.rfqDetail}><span>⏱ Hours</span><strong>{totalHours.toFixed(2)}hrs</strong></div>
-        <div className={styles.rfqDetail}><span>Officials</span><strong>{{both:'Refs & SKs', referees:'Refs Only', scorekeepers:'SKs Only'}[rfq.officialsNeeded] ?? '—'}</strong></div>
-        {rfq.startDate && (
-          <div className={styles.rfqDetail}>
-            <span>📅 Dates</span>
-            <strong>{format(new Date(rfq.startDate), 'MMM d')}{rfq.endDate ? ` – ${format(new Date(rfq.endDate), 'MMM d')}` : ''}</strong>
-          </div>
-        )}
-        {rfq.venues?.length > 0 && <div className={styles.rfqDetail}><span>📍 Venues</span><strong>{rfq.venues.join(', ')}</strong></div>}
-        {rfq.budget && <div className={styles.rfqDetail}><span>💰 Budget</span><strong>${Number(rfq.budget).toLocaleString()}</strong></div>}
+        <div className={styles.rfqDetail}><span>Games</span><strong>{totalGames}</strong></div>
+        <div className={styles.rfqDetail}><span>Total Hours</span><strong>{totalHours.toFixed(1)}hrs</strong></div>
+        <div className={styles.rfqDetail}><span>Officials</span><strong>{officialsLabel}</strong></div>
+        {rfq.budget && <div className={styles.rfqDetail}><span>Budget</span><strong>${Number(rfq.budget).toLocaleString()}</strong></div>}
       </div>
 
+      {/* Dates & Venues */}
+      <div className={styles.rfqMeta}>
+        {rfq.startDate && (
+          <div className={styles.rfqMetaRow}>
+            <span className={styles.rfqMetaLabel}>📅 Dates</span>
+            <span>{format(new Date(rfq.startDate), 'MMM d, yyyy')}
+              {rfq.endDate && rfq.endDate !== rfq.startDate ? ` – ${format(new Date(rfq.endDate), 'MMM d, yyyy')}` : ''}
+            </span>
+          </div>
+        )}
+        {rfq.venues?.length > 0 && (
+          <div className={styles.rfqMetaRow}>
+            <span className={styles.rfqMetaLabel}>📍 Venues</span>
+            <span>{rfq.venues.join(', ')}</span>
+          </div>
+        )}
+        {rfq.divisions?.length > 0 && (
+          <div className={styles.rfqMetaRow}>
+            <span className={styles.rfqMetaLabel}>🎯 Divisions</span>
+            <span>{rfq.divisions.map(d => d.label ?? d).join(', ')}</span>
+          </div>
+        )}
+        {rfq.notes && (
+          <div className={styles.rfqMetaRow}>
+            <span className={styles.rfqMetaLabel}>📝 Notes</span>
+            <span className={styles.rfqNote}>{rfq.notes}</span>
+          </div>
+        )}
+      </div>
+
+      {/* Expand / collapse game list */}
+      <button className={styles.expandBtn} onClick={() => setExpanded(e => !e)}>
+        {expanded ? '▲ Hide game list' : `▼ View all ${totalGames} games`}
+      </button>
+
+      {/* Game list table */}
+      {expanded && (
+        <div className={styles.gameTable}>
+          {gamesLoading ? (
+            <div className={styles.gameTableLoading}><Spinner size="sm" /></div>
+          ) : games.length === 0 ? (
+            <div className={styles.gameTableEmpty}>No games added yet.</div>
+          ) : (
+            <div className={styles.tableWrap}>
+              <table className={styles.table}>
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Time</th>
+                    <th>Venue</th>
+                    <th>Duration</th>
+                    <th>Division</th>
+                    <th>Home Team</th>
+                    <th>Away Team</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {games.map(g => {
+                    const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
+                    return (
+                      <tr key={g.id}>
+                        <td className={styles.tdDate}>{format(gd, 'MMM d, yyyy')}</td>
+                        <td className={styles.tdTime}>{format(gd, 'h:mm a')}</td>
+                        <td>{g.venue || '—'}</td>
+                        <td className={styles.tdDur}>{g.duration ? `${g.duration}hr` : '—'}</td>
+                        <td>{g.division || '—'}</td>
+                        <td className={styles.tdTeam}>{g.homeTeam}</td>
+                        <td className={styles.tdTeam}>{g.awayTeam}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Quote sent status */}
       {rfq.quoteAmount && (
         <div className={styles.rfqQuoteSent}>
           Your quote: <strong>${rfq.quoteAmount.toFixed(2)}</strong>
           {rfq.quotePriceMode && <span className={styles.rfqQuoteMode}> · {
-            rfq.quotePriceMode === 'flat'     ? 'Flat rate' :
-            rfq.quotePriceMode === 'per_game' ? 'Per game'  : 'Per game breakdown'
+            rfq.quotePriceMode === 'flat'          ? 'Flat rate' :
+            rfq.quotePriceMode === 'per_game'      ? 'Per game'  :
+            rfq.quotePriceMode === 'per_game_list' ? 'Per game (individual)' : ''
           }</span>}
           {rfq.quoteNote && <span> · "{rfq.quoteNote}"</span>}
         </div>
@@ -140,9 +240,7 @@ function RFQCard({ rfq, onQuote }) {
       )}
 
       {rfq.status === 'accepted' && (
-        <div className={styles.rfqAcceptedNotice}>
-          ✅ Your quote was accepted! An invoice has been created for the director to pay.
-        </div>
+        <div className={styles.rfqAcceptedNotice}>✅ Your quote was accepted! Invoice created for the director.</div>
       )}
       {rfq.status === 'not_selected' && (
         <div className={styles.rfqNotSelected}>Another scheduler was selected for this event.</div>
