@@ -37,8 +37,8 @@ export default function ProfileMessages() {
 
   const handleStartThread = async (participantId, participantName) => {
     if (!user || !participantId) return
-    await startThread(user.uid, profile?.displayName, participantId, participantName)
-    setActiveThread({ participantId, participantName, id: getThreadId(user.uid, participantId) })
+    const threadId = await startThread(user.uid, profile?.displayName, participantId, participantName)
+    setActiveThread({ id: threadId, participantId, participantName })
     setShowCompose(false)
   }
 
@@ -163,13 +163,15 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
   const [sending, setSending]   = useState(false)
   const bottomRef = useRef(null)
 
-  const threadId = thread.id ?? (currentUid && thread.participantId
-    ? getThreadId(currentUid, thread.participantId)
-    : null)
+  // thread.id is the RTDB key (e.g. uid1__uid2)
+  // thread.participantId is who we're talking to
+  const threadId      = thread.id
+  const participantId = thread.participantId
 
   useEffect(() => {
     if (!threadId) return
     setLoading(true)
+    setMessages([]) // Clear messages when switching threads
     const unsub = subscribeMessages(threadId, (msgs) => {
       setMessages(msgs)
       setLoading(false)
@@ -179,14 +181,16 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
   }, [threadId])
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    if (messages.length > 0) {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
   }, [messages])
 
   const handleSend = async () => {
     if (!text.trim() || !threadId || !currentUid) return
     setSending(true)
     try {
-      await sendMessage(threadId, currentUid, currentName, text, thread.participantId)
+      await sendMessage(threadId, currentUid, currentName, text, participantId)
       setText('')
     } catch { toast.error('Failed to send') }
     finally { setSending(false) }
