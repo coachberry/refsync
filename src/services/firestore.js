@@ -344,16 +344,17 @@ export const subscribeQuotesForScheduler = (schedulerUid, callback) => {
 // ─── RFQ NOTIFICATIONS ────────────────────────────────────────────────────────
 export const sendRFQ = async (groupId, groupData, schedulerUids, directorUid, directorName) => {
   const batch = writeBatch(db)
-  // Create an RFQ record per scheduler
+
   schedulerUids.forEach(uid => {
-    const ref = doc(collection(db, 'rfqs'))
-    batch.set(ref, {
+    // Create RFQ record
+    const rfqRef = doc(collection(db, 'rfqs'))
+    batch.set(rfqRef, {
       groupId,
       groupName:    groupData.name,
       directorUid,
       directorName,
       schedulerUid: uid,
-      status:       'open',   // open | quoted | accepted | declined
+      status:       'open',
       gameCount:    groupData.totalGames ?? 0,
       totalHours:   groupData.totalHours ?? 0,
       sport:        groupData.sport ?? 'Ice Hockey',
@@ -362,24 +363,58 @@ export const sendRFQ = async (groupId, groupData, schedulerUids, directorUid, di
       venues:       groupData.venues ?? [],
       divisions:    groupData.divisions ?? [],
       officialsNeeded: groupData.officialsNeeded ?? 'both',
-      refInvoiceRate:  groupData.refInvoiceRate ?? null,
-      skInvoiceRate:   groupData.skInvoiceRate  ?? null,
+      budget:       groupData.budget ?? null,
+      notes:        groupData.notes ?? '',
       createdAt:    serverTimestamp(),
     })
-    // Notification for scheduler
+
+    // In-app notification for scheduler
     const notifRef = doc(collection(db, 'notifications'))
     batch.set(notifRef, {
-      uid:     uid,
-      type:    'rfq',
-      title:   'New Game Group — Quote Requested',
-      message: `${directorName} wants you to quote for "${groupData.name}" (${groupData.totalGames ?? 0} games)`,
-      read:    false,
-      link:    '/scheduler',
+      uid:       uid,
+      type:      'rfq',
+      title:     '📋 New Quote Request',
+      message:   `${directorName} wants you to quote for "${groupData.name}" — ${groupData.totalGames ?? 0} games`,
+      read:      false,
+      link:      '/scheduler/quotes',
       groupId,
+      directorUid,
       createdAt: serverTimestamp(),
     })
   })
+
   await batch.commit()
+}
+
+export const sendRFQByEmail = async (groupId, groupData, email, directorUid, directorName) => {
+  // Look up user by email
+  const q = query(collection(db, 'users'), where('email', '==', email.toLowerCase().trim()))
+  const snap = await getDocs(q)
+
+  if (!snap.empty) {
+    // User exists — send them an RFQ + notification directly
+    const schedulerUid = snap.docs[0].id
+    await sendRFQ(groupId, groupData, [schedulerUid], directorUid, directorName)
+    return { found: true, uid: schedulerUid }
+  }
+
+  // User not found — record a pending invite
+  const inviteRef = doc(collection(db, 'rfqs'))
+  await setDoc(inviteRef, {
+    groupId,
+    groupName:    groupData.name,
+    directorUid,
+    directorName,
+    inviteEmail:  email.toLowerCase().trim(),
+    schedulerUid: null,
+    status:       'invited',
+    gameCount:    groupData.totalGames ?? 0,
+    totalHours:   groupData.totalHours ?? 0,
+    budget:       groupData.budget ?? null,
+    notes:        groupData.notes ?? '',
+    createdAt:    serverTimestamp(),
+  })
+  return { found: false, uid: null }
 }
 
 export const subscribeRFQsForScheduler = (schedulerUid, callback) => {

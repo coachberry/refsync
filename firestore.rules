@@ -128,5 +128,33 @@ service cloud.firestore {
       );
       allow delete: if false;
     }
+
+    // ── RFQs (Request for Quote) ──────────────────────────────────────────────
+    match /rfqs/{rfqId} {
+      allow read:   if isAuth() && (
+        resource.data.directorUid  == request.auth.uid ||
+        resource.data.schedulerUid == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('director');
+      allow update: if isAuth() && (
+        resource.data.directorUid  == request.auth.uid ||
+        resource.data.schedulerUid == request.auth.uid
+      );
+      allow delete: if isAuth() && resource.data.directorUid == request.auth.uid;
+    }
+
+    // ── Quotes ────────────────────────────────────────────────────────────────
+    match /quotes/{quoteId} {
+      allow read:   if isAuth() && (
+        resource.data.directorUid  == request.auth.uid ||
+        resource.data.schedulerUid == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && (
+        resource.data.directorUid  == request.auth.uid ||
+        resource.data.schedulerUid == request.auth.uid
+      );
+      allow delete: if false;
+    }
   }
 }

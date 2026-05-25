@@ -4,7 +4,7 @@ import { useGameGroups } from '@/hooks/useGameGroups'
 import { useConnections } from '@/hooks/useConnections'
 import { doc, deleteDoc, collection, query, where, onSnapshot, getDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { createGameGroup, createGame, updateGameGroup, sendRFQ, updateRFQ, subscribeRFQsForGroup } from '@/services/firestore'
+import { createGameGroup, createGame, updateGameGroup, sendRFQ, sendRFQByEmail, updateRFQ, subscribeRFQsForGroup } from '@/services/firestore'
 import { Avatar } from '@/components/ui/Avatar'
 import { Card, CardBody, Badge, statusBadge, EmptyState, Modal } from '@/components/ui'
 import { Input, Select, Textarea, FormRow } from '@/components/ui/Input'
@@ -718,16 +718,19 @@ function NotifySchedulersModal({ open, onClose, group, userId, userName, connect
     }
     setSaving(true)
     try {
-      const uids = [...selected]
-      // If email provided, look up or create a pending connection
-      if (inviteEmail.trim()) {
-        // For invited-by-email schedulers, we send a notification via email
-        // and add them to the RFQ when they join
-        toast('Email invite will be sent when they join RefSync')
+      // Send to selected connected schedulers
+      if (selected.length > 0) {
+        await sendRFQ(group.id, group, selected, userId, userName)
+        toast.success(`${selected.length} scheduler${selected.length > 1 ? 's' : ''} notified!`)
       }
-      if (uids.length > 0) {
-        await sendRFQ(group.id, group, uids, userId, userName)
-        toast.success(`${uids.length} scheduler${uids.length > 1 ? 's' : ''} notified!`)
+      // Send to email invite
+      if (inviteEmail.trim()) {
+        const result = await sendRFQByEmail(group.id, group, inviteEmail.trim(), userId, userName)
+        if (result.found) {
+          toast.success(`Quote request sent to ${inviteEmail}`)
+        } else {
+          toast(`${inviteEmail} doesn't have a RefSync account yet — they'll be notified when they join`, { icon: '📧' })
+        }
       }
       setSelected([])
       setInviteEmail('')
