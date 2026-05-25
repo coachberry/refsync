@@ -6,7 +6,7 @@
 const FUNCTIONS = {
   sendEmailNotification: import.meta.env.DEV
     ? 'http://127.0.0.1:5001/refsync-c1a46/us-central1/sendEmailNotification'
-    : 'https://sendemailnotification-hmh3r2a4ra-uc.a.run.app',
+    : 'https://us-central1-refsync-c1a46.cloudfunctions.net/sendEmailNotification',
 }
 
 const send = async (to, subject, html) => {

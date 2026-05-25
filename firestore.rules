@@ -6,7 +6,6 @@ service cloud.firestore {
     function isAuth()          { return request.auth != null; }
     function isOwner(uid)      { return request.auth.uid == uid; }
     function hasRole(role)     { return role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
-    function isAdmin()         { return request.auth.token.admin == true; }
 
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{uid} {
