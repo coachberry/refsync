@@ -144,8 +144,7 @@ function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onEdit, onDelete
           <div className={styles.groupInfo}>
             <span className={styles.infoRow}>🎯 {divisionLabels}</span>
             <span className={styles.infoRow}>📍 {venueLabels}</span>
-            {refEst && <span className={styles.infoRow}>💰 {refEst}</span>}
-            {skEst  && <span className={styles.infoRow}>💰 {skEst}</span>}
+            {group.budget && <span className={styles.infoRow}>💰 Budget: <strong>${Number(group.budget).toLocaleString()}</strong></span>}
           </div>
         </div>
         <Badge variant={statusBadge(group.status ?? 'draft')}>{group.status ?? 'draft'}</Badge>
@@ -246,17 +245,12 @@ function BillingRateBlock({ title, hourlyRate, perGameFee, onHourlyChange, onPer
 // ── Create Group Modal ────────────────────────────────────────────────────────
 function CreateGroupModal({ open, onClose, userId, userProfile }) {
   const [saving, setSaving]               = useState(false)
-  const [form, setForm]                   = useState({ name: '', sport: 'Ice Hockey', startDate: '', endDate: '', notes: '' })
+  const [form, setForm]                   = useState({ name: '', sport: 'Ice Hockey', startDate: '', endDate: '', notes: '', budget: '' })
   const [venues, setVenues]               = useState([''])
   const [divisions, setDivisions]         = useState([])
   const [divisionInput, setDivisionInput] = useState('')
   const [dateError, setDateError]         = useState('')
   const [officialsNeeded, setOfficialsNeeded] = useState('both')
-  // Billing rates — separate for refs and SCs
-  const [refHourly, setRefHourly]   = useState('75')
-  const [refPerGame, setRefPerGame] = useState('10')
-  const [skHourly, setSkHourly]     = useState('20')
-  const [skPerGame, setSkPerGame]   = useState('5')
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const handleEndDate = (v) => { setDateError(form.startDate && v && v < form.startDate ? 'End date cannot be before start date' : ''); set('endDate', v) }
@@ -282,25 +276,18 @@ function CreateGroupModal({ open, onClose, userId, userProfile }) {
         totalGames: 0,
         filledGames: 0,
         totalHours: 0,
-        // Store rates per type
-        refInvoiceRate: (officialsNeeded === 'referees' || officialsNeeded === 'both')
-          ? { hourlyRate: Number(refHourly) || 75, perGameFee: Number(refPerGame) || 10 } : null,
-        skInvoiceRate: (officialsNeeded === 'scorekeepers' || officialsNeeded === 'both')
-          ? { hourlyRate: Number(skHourly) || 20, perGameFee: Number(skPerGame) || 5 } : null,
+        budget: form.budget ? Number(form.budget) : null,
         directorName: userProfile?.displayName,
         organization: userProfile?.directorProfile?.organization ?? '',
         status: 'draft',
       }, userId)
       toast.success('Event created!')
-      setForm({ name: '', sport: 'Ice Hockey', startDate: '', endDate: '', notes: '' })
+      setForm({ name: '', sport: 'Ice Hockey', startDate: '', endDate: '', notes: '', budget: '' })
       setVenues(['']); setDivisions([]); setDivisionInput('')
       onClose()
     } catch { toast.error('Failed to create event') }
     finally { setSaving(false) }
   }
-
-  const needsRef = officialsNeeded === 'referees'     || officialsNeeded === 'both'
-  const needsSK  = officialsNeeded === 'scorekeepers' || officialsNeeded === 'both'
 
   return (
     <Modal open={open} onClose={onClose} title="Create Event / League" size="md"
@@ -350,25 +337,7 @@ function CreateGroupModal({ open, onClose, userId, userProfile }) {
         </div>
       </div>
 
-      {/* Billing rates — shown per type */}
-      <div style={{ marginBottom: 14 }}>
-        <label style={{ ...labelSt, marginBottom: 8 }}>Scheduler Billing Rates</label>
-        {needsRef && (
-          <BillingRateBlock
-            title="🏒 Referee Scheduler Rate"
-            hourlyRate={refHourly} perGameFee={refPerGame}
-            onHourlyChange={setRefHourly} onPerGameChange={setRefPerGame}
-          />
-        )}
-        {needsSK && (
-          <BillingRateBlock
-            title="📋 Scorekeeper Scheduler Rate"
-            hourlyRate={skHourly} perGameFee={skPerGame}
-            onHourlyChange={setSkHourly} onPerGameChange={setSkPerGame}
-          />
-        )}
-      </div>
-
+      <Input label="Budget (optional)" type="number" placeholder="e.g. 2500" value={form.budget} onChange={e => set('budget', e.target.value)} hint="Your total budget for scheduling — shared with schedulers as guidance when they quote" />
       <Textarea label="Notes for Scheduler" placeholder="Parking info, dress code, special instructions..." value={form.notes} onChange={e => set('notes', e.target.value)} />
     </Modal>
   )
@@ -377,16 +346,12 @@ function CreateGroupModal({ open, onClose, userId, userProfile }) {
 // ── Edit Group Modal ──────────────────────────────────────────────────────────
 function EditGroupModal({ open, onClose, group }) {
   const [saving, setSaving]               = useState(false)
-  const [form, setForm]                   = useState({ name: group?.name ?? '', sport: group?.sport ?? 'Ice Hockey', startDate: group?.startDate ?? '', endDate: group?.endDate ?? '', notes: group?.notes ?? '' })
+  const [form, setForm]                   = useState({ name: group?.name ?? '', sport: group?.sport ?? 'Ice Hockey', startDate: group?.startDate ?? '', endDate: group?.endDate ?? '', notes: group?.notes ?? '', budget: group?.budget ? String(group.budget) : '' })
   const [venues, setVenues]               = useState(group?.venues ?? [''])
   const [divisions, setDivisions]         = useState(group?.divisions ?? [])
   const [divisionInput, setDivisionInput] = useState('')
   const [dateError, setDateError]         = useState('')
   const [officialsNeeded, setOfficialsNeeded] = useState(group?.officialsNeeded ?? 'both')
-  const [refHourly, setRefHourly]   = useState(String(group?.refInvoiceRate?.hourlyRate ?? group?.invoiceRate?.hourlyRate ?? 75))
-  const [refPerGame, setRefPerGame] = useState(String(group?.refInvoiceRate?.perGameFee ?? group?.invoiceRate?.perGameFee ?? 10))
-  const [skHourly, setSkHourly]     = useState(String(group?.skInvoiceRate?.hourlyRate ?? 20))
-  const [skPerGame, setSkPerGame]   = useState(String(group?.skInvoiceRate?.perGameFee ?? 5))
 
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
   const handleEndDate = (v) => { setDateError(form.startDate && v && v < form.startDate ? 'End date cannot be before start date' : ''); set('endDate', v) }
@@ -404,20 +369,14 @@ function EditGroupModal({ open, onClose, group }) {
     if (!divisions.length)              { toast.error('Add at least one age group / skill level'); return }
     setSaving(true)
     try {
-      const needsRef = officialsNeeded === 'referees'     || officialsNeeded === 'both'
-      const needsSK  = officialsNeeded === 'scorekeepers' || officialsNeeded === 'both'
       await updateGameGroup(group.id, {
         ...form, venues: filledVenues, divisions, officialsNeeded,
-        refInvoiceRate: needsRef ? { hourlyRate: Number(refHourly) || 75, perGameFee: Number(refPerGame) || 10 } : null,
-        skInvoiceRate:  needsSK  ? { hourlyRate: Number(skHourly)  || 20, perGameFee: Number(skPerGame)  || 5  } : null,
+        budget: form.budget ? Number(form.budget) : null,
       })
       toast.success('Event updated!'); onClose()
     } catch { toast.error('Failed to update event') }
     finally { setSaving(false) }
   }
-
-  const needsRef = officialsNeeded === 'referees'     || officialsNeeded === 'both'
-  const needsSK  = officialsNeeded === 'scorekeepers' || officialsNeeded === 'both'
 
   return (
     <Modal open={open} onClose={onClose} title={`Edit — ${group?.name ?? ''}`} size="md"
@@ -434,7 +393,6 @@ function EditGroupModal({ open, onClose, group }) {
       <VenueFields venues={venues} onUpdate={updateVenue} onAdd={addVenue} onRemove={removeVenue} />
       <DivisionFields divisions={divisions} input={divisionInput} onInputChange={setDivisionInput} onAdd={addDivision} onRemove={removeDivision} />
 
-      {/* Officials needed */}
       <div style={{ marginBottom: 14 }}>
         <label style={{ ...labelSt, marginBottom: 8 }}>Officials Needed</label>
         <Select value={officialsNeeded} onChange={e => setOfficialsNeeded(e.target.value)}>
@@ -442,9 +400,7 @@ function EditGroupModal({ open, onClose, group }) {
         </Select>
       </div>
 
-      {needsRef && <BillingRateBlock title="🏒 Referee Scheduler Rate" hourlyRate={refHourly} perGameFee={refPerGame} onHourlyChange={setRefHourly} onPerGameChange={setRefPerGame} />}
-      {needsSK  && <BillingRateBlock title="📋 Scorekeeper Scheduler Rate" hourlyRate={skHourly} perGameFee={skPerGame} onHourlyChange={setSkHourly} onPerGameChange={setSkPerGame} />}
-
+      <Input label="Budget (optional)" type="number" placeholder="e.g. 2500" value={form.budget} onChange={e => set('budget', e.target.value)} hint="Your total budget for scheduling" />
       <Textarea label="Notes for Scheduler" value={form.notes} onChange={e => set('notes', e.target.value)} />
     </Modal>
   )
