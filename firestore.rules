@@ -58,20 +58,6 @@ service cloud.firestore {
       );
     }
 
-    // ── Invoices ──────────────────────────────────────────────────────────────
-    match /invoices/{invoiceId} {
-      allow read:   if isAuth() && (
-        resource.data.schedulerId == request.auth.uid ||
-        resource.data.directorId  == request.auth.uid
-      );
-      allow create: if isAuth() && hasRole('scheduler');
-      allow update: if isAuth() && (
-        resource.data.schedulerId == request.auth.uid ||
-        resource.data.directorId  == request.auth.uid
-      );
-      allow delete: if isAuth() && resource.data.schedulerId == request.auth.uid;
-    }
-
     // ── Payments ──────────────────────────────────────────────────────────────
     match /payments/{paymentId} {
       allow read:   if isAuth() && (
@@ -88,7 +74,10 @@ service cloud.firestore {
       allow read:   if isAuth() && resource.data.uid == request.auth.uid;
       allow create: if isAuth();
       allow update: if isAuth() && resource.data.uid == request.auth.uid;
-      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && (
+        resource.data.uid == request.auth.uid ||
+        resource.data.directorUid == request.auth.uid
+      );
     }
 
     // ── Availability ──────────────────────────────────────────────────────────
@@ -154,7 +143,24 @@ service cloud.firestore {
         resource.data.directorUid  == request.auth.uid ||
         resource.data.schedulerUid == request.auth.uid
       );
-      allow delete: if false;
+      allow delete: if isAuth() && resource.data.directorUid == request.auth.uid;
+    }
+
+    // ── Invoices — director can delete when cascading group delete ────────────
+    match /invoices/{invoiceId} {
+      allow read:   if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId  == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId  == request.auth.uid
+      );
+      allow delete: if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId  == request.auth.uid
+      );
     }
   }
 }

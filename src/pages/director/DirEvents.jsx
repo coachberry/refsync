@@ -50,11 +50,40 @@ export default function DirEvents() {
   const [selectedGroup, setSelectedGroup]     = useState(null)
 
   const handleDelete = async (group) => {
-    if (!window.confirm(`Delete "${group.name}"? This cannot be undone.`)) return
+    if (!window.confirm(`Delete "${group.name}"?\n\nThis will permanently remove:\n• All games in this event\n• All quote requests sent to schedulers\n• All notifications related to this event\n\nThis cannot be undone.`)) return
     try {
-      await deleteDoc(doc(db, 'gameGroups', group.id))
-      toast.success('Event deleted')
-    } catch { toast.error('Failed to delete event') }
+      const { getDocs, query, collection, where, writeBatch, deleteDoc, doc: firestoreDoc } = await import('firebase/firestore')
+      const batch = writeBatch(db)
+
+      // 1. Delete all games in this group
+      const gamesSnap = await getDocs(query(collection(db, 'games'), where('groupId', '==', group.id)))
+      gamesSnap.docs.forEach(d => batch.delete(d.ref))
+
+      // 2. Delete all RFQs for this group
+      const rfqsSnap = await getDocs(query(collection(db, 'rfqs'), where('groupId', '==', group.id)))
+      rfqsSnap.docs.forEach(d => batch.delete(d.ref))
+
+      // 3. Delete all quotes for this group
+      const quotesSnap = await getDocs(query(collection(db, 'quotes'), where('groupId', '==', group.id)))
+      quotesSnap.docs.forEach(d => batch.delete(d.ref))
+
+      // 4. Delete all invoices for this group
+      const invoicesSnap = await getDocs(query(collection(db, 'invoices'), where('groupId', '==', group.id)))
+      invoicesSnap.docs.forEach(d => batch.delete(d.ref))
+
+      // 5. Delete notifications related to this group
+      const notifsSnap = await getDocs(query(collection(db, 'notifications'), where('groupId', '==', group.id)))
+      notifsSnap.docs.forEach(d => batch.delete(d.ref))
+
+      // 6. Delete the group itself
+      batch.delete(firestoreDoc(db, 'gameGroups', group.id))
+
+      await batch.commit()
+      toast.success(`"${group.name}" and all related data deleted`)
+    } catch (err) {
+      console.error('Delete failed:', err)
+      toast.error('Failed to delete event: ' + (err.message ?? err))
+    }
   }
 
   return (
