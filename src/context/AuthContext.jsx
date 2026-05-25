@@ -6,16 +6,16 @@ import {
   onAuthStateChanged,
   updateProfile,
 } from 'firebase/auth'
-import { doc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { doc, getDoc, setDoc, updateDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db } from '@/lib/firebase'
 
 const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
-  const [user, setUser] = useState(null)
-  const [profile, setProfile] = useState(null)
+  const [user, setUser]           = useState(null)
+  const [profile, setProfile]     = useState(null)
   const [activeRole, setActiveRole] = useState(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading]     = useState(true)
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -25,9 +25,8 @@ export function AuthProvider({ children }) {
         if (snap.exists()) {
           const data = snap.data()
           setProfile(data)
-          // restore last active role from localStorage
           const saved = localStorage.getItem(`refsync_role_${firebaseUser.uid}`)
-          const role = saved && data.roles?.includes(saved) ? saved : data.roles?.[0]
+          const role  = saved && data.roles?.includes(saved) ? saved : data.roles?.[0]
           setActiveRole(role)
         }
       } else {
@@ -40,48 +39,40 @@ export function AuthProvider({ children }) {
     return unsub
   }, [])
 
-  const signUp = async ({ email, password, displayName, roles, sport = 'hockey' }) => {
+  const signUp = async ({ email, password, displayName, roles, subRoles = [] }) => {
     const cred = await createUserWithEmailAndPassword(auth, email, password)
     await updateProfile(cred.user, { displayName })
+
     const profileData = {
       uid: cred.user.uid,
       displayName,
       email,
       roles,
-      sport,
+      subRoles,
       createdAt: serverTimestamp(),
-      // role-specific sub-profiles populated on first use
       officialProfile: roles.includes('official') ? {
-        certLevel: '',
-        certNumber: '',
-        homeAddress: '',
-        jerseyNumber: '',
-        positions: [],   // referee, linesman, scorekeeper
-        joinedDate: new Date().toISOString(),
-        totalGames: 0,
-        seasonGames: 0,
+        certLevel: '', certNumber: '', homeAddress: '',
+        positions: [], joinedDate: new Date().toISOString(),
+        totalGames: 0, seasonGames: 0,
       } : null,
       schedulerProfile: roles.includes('scheduler') ? {
-        organization: '',
-        licenseNumber: '',
-        invoicePrefix: 'INV',
-        nextInvoiceNumber: 1,
+        organization: '', licenseNumber: '',
+        invoicePrefix: 'INV', nextInvoiceNumber: 1,
+        subRoles,
       } : null,
       directorProfile: roles.includes('director') ? {
-        organization: '',
-        leagueName: '',
+        organization: '', leagueName: '',
       } : null,
     }
+
     await setDoc(doc(db, 'users', cred.user.uid), profileData)
     setProfile(profileData)
     setActiveRole(roles[0])
     return cred.user
   }
 
-  const signIn = async (email, password) => {
-    const cred = await signInWithEmailAndPassword(auth, email, password)
-    return cred.user
-  }
+  const signIn = (email, password) =>
+    signInWithEmailAndPassword(auth, email, password)
 
   const logout = () => signOut(auth)
 
@@ -90,6 +81,42 @@ export function AuthProvider({ children }) {
       setActiveRole(role)
       localStorage.setItem(`refsync_role_${user.uid}`, role)
     }
+  }
+
+  // Add a new role to an existing account
+  const addRole = async (newRole, newSubRoles = []) => {
+    if (!user || !profile) return
+    const updatedRoles    = [...new Set([...profile.roles, newRole])]
+    const updatedSubRoles = [...new Set([...(profile.subRoles ?? []), ...newSubRoles])]
+
+    const extra = {}
+    if (newRole === 'official' && !profile.officialProfile) {
+      extra.officialProfile = {
+        certLevel: '', certNumber: '', homeAddress: '',
+        positions: [], joinedDate: new Date().toISOString(),
+        totalGames: 0, seasonGames: 0,
+      }
+    }
+    if (newRole === 'scheduler' && !profile.schedulerProfile) {
+      extra.schedulerProfile = {
+        organization: '', licenseNumber: '',
+        invoicePrefix: 'INV', nextInvoiceNumber: 1,
+        subRoles: newSubRoles,
+      }
+    }
+    if (newRole === 'director' && !profile.directorProfile) {
+      extra.directorProfile = { organization: '', leagueName: '' }
+    }
+
+    await updateDoc(doc(db, 'users', user.uid), {
+      roles: updatedRoles,
+      subRoles: updatedSubRoles,
+      ...extra,
+      updatedAt: serverTimestamp(),
+    })
+
+    const updated = { ...profile, roles: updatedRoles, subRoles: updatedSubRoles, ...extra }
+    setProfile(updated)
   }
 
   const refreshProfile = async () => {
@@ -101,7 +128,7 @@ export function AuthProvider({ children }) {
   return (
     <AuthContext.Provider value={{
       user, profile, activeRole, loading,
-      signUp, signIn, logout, switchRole, refreshProfile,
+      signUp, signIn, logout, switchRole, addRole, refreshProfile,
     }}>
       {children}
     </AuthContext.Provider>

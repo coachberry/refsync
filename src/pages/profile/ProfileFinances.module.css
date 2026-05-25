@@ -1,0 +1,60 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+.headerActions { display: flex; gap: 8px; }
+
+/* Stripe banner */
+.stripeBanner {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 16px 20px; border-radius: var(--radius-md);
+  border: 1.5px solid; gap: 14px; flex-wrap: wrap;
+}
+.stripeBannerConnected { background: rgba(0,184,153,.06); border-color: rgba(0,184,153,.25); }
+.stripeBannerPending   { background: rgba(245,158,11,.06); border-color: rgba(245,158,11,.25); }
+.stripeBannerLeft { display: flex; align-items: center; gap: 14px; }
+.stripeBannerIcon  { font-size: 28px; flex-shrink: 0; }
+.stripeBannerTitle { font-size: 14px; font-weight: 700; }
+.stripeBannerSub   { font-size: 12.5px; color: var(--color-muted); margin-top: 2px; }
+
+/* Stats */
+.statsGrid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+.stat { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px 18px; box-shadow: var(--shadow-sm); }
+.statIcon  { font-size: 22px; margin-bottom: 6px; }
+.statValue { font-family: var(--font-display); font-size: 24px; font-weight: 800; }
+.statLabel { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+/* Tabs */
+.tabs { display: flex; gap: 3px; background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 4px; }
+.tab  { flex: 1; padding: 7px 12px; border-radius: var(--radius-sm); border: none; font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-body); background: transparent; color: var(--color-muted); transition: all .13s; }
+.tabActive { background: var(--color-bg); color: var(--color-text); box-shadow: var(--shadow-sm); }
+
+/* Overview */
+.overviewGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.listRow { display: flex; align-items: center; justify-content: space-between; padding: 12px 18px; border-bottom: 1px solid var(--color-border); gap: 12px; }
+.listRow:last-child { border-bottom: none; }
+.listRowLeft { display: flex; align-items: center; gap: 10px; }
+.listName   { font-size: 13.5px; font-weight: 600; }
+.listSub    { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.listRight  { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.listAmount { font-family: var(--font-display); font-size: 14px; font-weight: 800; }
+
+/* Table */
+.tableWrap { overflow-x: auto; }
+.table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.table thead th { text-align: left; padding: 9px 14px; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--color-muted); border-bottom: 1px solid var(--color-border); background: var(--color-surface-2); white-space: nowrap; }
+.table tbody tr { border-bottom: 1px solid var(--color-border); transition: background .1s; }
+.table tbody tr:last-child { border-bottom: none; }
+.table tbody tr:hover { background: var(--color-surface-2); }
+.table td { padding: 10px 14px; vertical-align: middle; }
+.invoiceNum  { font-weight: 700; color: var(--blue); font-size: 12.5px; }
+.amount      { font-family: var(--font-display); font-weight: 800; font-size: 14px; }
+.muted       { color: var(--color-muted); }
+.officialCell { display: flex; align-items: center; gap: 8px; }
+.rowActions  { display: flex; gap: 6px; }
+
+@media (max-width: 768px) {
+  .statsGrid    { grid-template-columns: repeat(2,1fr); }
+  .overviewGrid { grid-template-columns: 1fr; }
+}

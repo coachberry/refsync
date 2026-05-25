@@ -1,0 +1,53 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.header { margin-bottom: 4px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+.hint   { font-size: 13px; color: var(--color-muted); margin-bottom: 14px; line-height: 1.5; }
+
+/* Current roles */
+.currentRoles { display: flex; flex-direction: column; gap: 10px; }
+.currentRole {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; border-radius: var(--radius-md);
+  border: 1.5px solid; background: var(--color-surface-2);
+}
+.currentRoleIcon { font-size: 24px; flex-shrink: 0; }
+.currentRoleInfo { flex: 1; }
+.currentRoleName { font-size: 14px; font-weight: 700; }
+.currentRoleSubs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 5px; }
+
+/* Add sub-roles */
+.subRoleList { display: flex; flex-direction: column; gap: 8px; }
+.subRoleRow {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: var(--color-surface-2);
+  gap: 12px;
+}
+.subRoleName { font-size: 13.5px; font-weight: 600; }
+.subRoleDesc { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+/* New role options */
+.roleList { display: flex; flex-direction: column; gap: 12px; }
+.roleOption {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+.roleOptionTop {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; background: var(--color-surface-2);
+}
+.roleOptionIcon { font-size: 26px; flex-shrink: 0; }
+.roleOptionInfo { flex: 1; }
+.roleOptionName { font-size: 14px; font-weight: 700; }
+.roleOptionDesc { font-size: 12.5px; color: var(--color-muted); margin-top: 2px; }
+
+/* Sub-role picker */
+.subRolePicker { padding: 14px 16px; border-top: 1px solid var(--color-border); background: var(--color-surface); display: flex; flex-direction: column; gap: 8px; }
+.subRolePickerLabel { font-size: 12px; font-weight: 600; color: var(--color-muted); text-transform: uppercase; letter-spacing: .6px; margin-bottom: 4px; }
+.subRolePickerItem {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 12px; border-radius: var(--radius);
+  border: 1.5px solid; cursor: pointer; transition: all .13s;
+}

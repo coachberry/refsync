@@ -1,0 +1,29 @@
+{
+  "name": "RefSync",
+  "short_name": "RefSync",
+  "description": "Hockey officiating scheduling and payroll platform",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f1117",
+  "theme_color": "#cc1f1f",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["sports", "productivity", "business"],
+  "shortcuts": [
+    { "name": "My Schedule", "url": "/official/schedule", "description": "View your game schedule" },
+    { "name": "Messages",    "url": "/profile/messages",  "description": "View your messages" }
+  ]
+}

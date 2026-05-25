@@ -1,0 +1,42 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+/* Pending rows */
+.pendingRow {
+  display: flex; align-items: center; gap: 13px;
+  padding: 13px 18px; border-bottom: 1px solid var(--color-border);
+}
+.pendingRow:last-child { border-bottom: none; }
+.pendingIcon { font-size: 22px; flex-shrink: 0; }
+.pendingInfo { flex: 1; }
+.pendingName { font-size: 13.5px; font-weight: 600; }
+.pendingMeta { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+/* Scheduler cards */
+.schedulerList { display: flex; flex-direction: column; gap: 14px; }
+.schedulerCard {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); box-shadow: var(--shadow); overflow: hidden;
+}
+.schedulerTop {
+  display: flex; align-items: flex-start; gap: 16px;
+  padding: 18px 20px;
+}
+.schedulerInfo    { flex: 1; min-width: 0; }
+.schedulerName    { font-family: var(--font-display); font-size: 18px; font-weight: 700; }
+.schedulerEmail   { font-size: 12.5px; color: var(--color-muted); margin-top: 2px; }
+.schedulerType    { font-size: 13px; font-weight: 600; color: var(--blue); margin-top: 5px; }
+.schedulerOrg     { font-size: 12.5px; color: var(--color-muted); margin-top: 3px; }
+.schedulerSince   { font-size: 11.5px; color: var(--color-muted); margin-top: 6px; }
+.schedulerActions { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; flex-shrink: 0; }
+
+/* Assigned groups */
+.assignedGroups { padding: 14px 20px; border-top: 1px solid var(--color-border); background: var(--color-surface-2); }
+.assignedLabel  { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--color-muted); margin-bottom: 10px; }
+.assignedList   { display: flex; flex-direction: column; gap: 8px; }
+.assignedGroup  { display: flex; align-items: center; gap: 10px; }
+.assignedGroupName { font-size: 13px; font-weight: 600; flex: 1; }
+.assignedGroupMeta { font-size: 12px; color: var(--color-muted); flex-shrink: 0; }

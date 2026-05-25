@@ -1,0 +1,41 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 40px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 4px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+.statsGrid { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; }
+.stat { background: var(--color-surface); border: 1px solid var(--color-border); border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-sm); }
+.statIcon  { font-size: 22px; margin-bottom: 8px; }
+.statValue { font-family: var(--font-display); font-size: 26px; font-weight: 800; }
+.statLabel { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+/* Section divider */
+.sectionDivider { display: flex; align-items: center; gap: 12px; padding: 4px 0; }
+.sectionDividerBefore,
+.sectionDividerAfter { flex: 1; height: 1px; background: var(--color-border); }
+.sectionDividerLabel { font-size: 12px; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: .8px; white-space: nowrap; }
+
+/* Connection row */
+.connRow { display: flex; align-items: center; gap: 13px; padding: 14px 18px; border-bottom: 1px solid var(--color-border); }
+.connRow:last-child { border-bottom: none; }
+.connInfo  { flex: 1; min-width: 0; }
+.connName  { font-size: 14px; font-weight: 700; }
+.connOrg   { font-size: 12.5px; color: var(--color-muted); margin-top: 2px; }
+.connGames { font-size: 12px; color: var(--teal); font-weight: 600; margin-top: 3px; }
+.connActions { display: flex; gap: 7px; flex-shrink: 0; }
+
+/* Group row */
+.groupRow { display: flex; align-items: center; gap: 13px; padding: 13px 18px; border-bottom: 1px solid var(--color-border); }
+.groupRow:last-child { border-bottom: none; }
+.groupInfo { flex: 1; min-width: 0; }
+.groupName { font-size: 13.5px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.groupMeta { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.groupFill { display: flex; flex-direction: column; gap: 4px; min-width: 80px; }
+.fillBar   { height: 5px; background: var(--color-bg); border-radius: 99px; overflow: hidden; }
+.fillProgress { height: 100%; background: var(--teal); border-radius: 99px; transition: width .3s; }
+.fillText  { font-size: 11px; color: var(--color-muted); text-align: right; }
+
+@media (max-width: 768px) {
+  .statsGrid { grid-template-columns: repeat(2,1fr); }
+}

@@ -202,3 +202,10 @@
   }
   .backdrop { display: block; }
 }
+
+.activeSubLabel {
+  font-size: 10.5px;
+  color: color-mix(in srgb, var(--role-color) 80%, white);
+  margin-top: 1px;
+  font-weight: 500;
+}

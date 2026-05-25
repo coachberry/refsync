@@ -1,0 +1,140 @@
+.outer {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--color-bg);
+}
+
+.card {
+  width: 100%;
+  background: var(--color-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--color-border);
+  box-shadow: var(--shadow-lg);
+  overflow: hidden;
+}
+
+.header {
+  background: var(--sidebar-bg);
+  padding: 28px 32px;
+  text-align: center;
+}
+
+.logo {
+  font-family: var(--font-display);
+  font-size: 28px;
+  font-weight: 800;
+  color: #fff;
+}
+
+.sub {
+  font-size: 13px;
+  color: rgba(255,255,255,0.4);
+  margin-top: 4px;
+}
+
+.body {
+  padding: 28px 32px;
+}
+
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  font-size: 13.5px;
+  font-family: var(--font-body);
+  color: var(--color-text);
+  outline: none;
+  transition: border-color 0.14s;
+}
+.input:focus { border-color: var(--blue); }
+
+.errorBox {
+  background: var(--red-light);
+  border: 1px solid var(--red-mid);
+  border-radius: var(--radius);
+  padding: 9px 12px;
+  font-size: 13px;
+  color: var(--red);
+  margin-bottom: 14px;
+}
+
+.btnPrimary {
+  width: 100%;
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--red);
+  color: #fff;
+  border: none;
+  font-size: 14px;
+  font-weight: 700;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background 0.14s;
+  margin-top: 4px;
+}
+.btnPrimary:hover:not(:disabled) { background: var(--red-hover); }
+.btnPrimary:disabled { opacity: 0.6; cursor: not-allowed; }
+
+.link {
+  text-align: center;
+  font-size: 13px;
+  color: var(--color-muted);
+  margin-top: 18px;
+}
+
+/* Step indicator used in SignUp */
+.steps {
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  margin-bottom: 24px;
+  position: relative;
+}
+.stepItem  { display: flex; align-items: center; gap: 8px; z-index: 1; }
+.stepDot {
+  width: 26px; height: 26px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #fff; flex-shrink: 0;
+}
+.stepLine {
+  position: absolute; top: 13px; left: 34px; right: 0;
+  height: 1px; background: var(--color-border); z-index: 0;
+}
+.stepLabel {
+  font-size: 12px; font-weight: 600;
+}
+
+/* Role select cards used in SignUp */
+.roleCard {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  border: 2px solid;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  cursor: pointer;
+  margin-bottom: 10px;
+  transition: all 0.14s;
+}
+.roleCardIcon { font-size: 24px; flex-shrink: 0; }
+.roleCardName { font-size: 14px; font-weight: 700; }
+.roleCardDesc { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+.btnSecondary {
+  padding: 10px 16px;
+  border-radius: var(--radius);
+  background: var(--color-bg);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-body);
+  cursor: pointer;
+  transition: background 0.14s;
+}
+.btnSecondary:hover { background: var(--color-surface); }

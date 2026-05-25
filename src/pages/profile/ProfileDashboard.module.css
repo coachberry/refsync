@@ -1,0 +1,126 @@
+.page { display: flex; flex-direction: column; gap: 20px; max-width: 900px; margin: 0 auto; }
+
+/* Profile card */
+.profileCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: 24px;
+}
+.profileTop { display: flex; align-items: flex-start; gap: 20px; flex-wrap: wrap; }
+
+.avatarWrap { position: relative; flex-shrink: 0; }
+.avatarEditBtn {
+  position: absolute; bottom: 0; right: 0;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--sidebar-bg); color: #fff;
+  border: 2px solid var(--color-surface);
+  font-size: 12px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .12s;
+}
+.avatarEditBtn:hover { background: var(--red); }
+
+.profileInfo { flex: 1; min-width: 180px; }
+.profileName  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0 0 3px; }
+.profileEmail { font-size: 13px; color: var(--color-muted); margin-bottom: 10px; }
+.profileBadges { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 8px; }
+.subRoleBadge {
+  padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600;
+  background: var(--color-bg); border: 1px solid var(--color-border); color: var(--color-text-2);
+}
+.profileBio { font-size: 13.5px; color: var(--color-text-2); line-height: 1.5; margin: 0; }
+
+.profileStats { display: flex; gap: 24px; flex-shrink: 0; align-items: flex-start; }
+.statItem     { text-align: center; }
+.statVal      { font-family: var(--font-display); font-size: 24px; font-weight: 800; }
+.statLbl      { font-size: 11px; color: var(--color-muted); text-transform: uppercase; letter-spacing: .5px; margin-top: 2px; }
+.unreadVal    { color: var(--red); }
+
+/* Main grid */
+.grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+
+.sectionTitle {
+  font-family: var(--font-display); font-size: 14px; font-weight: 700;
+  margin-bottom: 12px;
+}
+.sectionHeader {
+  display: flex; align-items: center; gap: 8px; margin-bottom: 12px;
+}
+.sectionHeader .sectionTitle { margin-bottom: 0; flex: 1; }
+.seeAllBtn {
+  background: none; border: none; font-size: 12.5px; font-weight: 600;
+  color: var(--blue); cursor: pointer; font-family: var(--font-body);
+}
+
+/* Role cards */
+.rolesSection { grid-column: span 2; }
+.roleCards { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; }
+
+.roleCard {
+  display: flex; align-items: center; gap: 14px;
+  padding: 16px; border-radius: var(--radius-md);
+  border: 1.5px solid var(--color-border);
+  background: var(--color-surface);
+  cursor: pointer; transition: all .14s;
+  box-shadow: var(--shadow-sm);
+}
+.roleCard:hover {
+  border-color: var(--role-color);
+  background: color-mix(in srgb, var(--role-color) 5%, var(--color-surface));
+  box-shadow: var(--shadow);
+  transform: translateY(-1px);
+}
+.roleCardIcon  { font-size: 28px; flex-shrink: 0; }
+.roleCardInfo  { flex: 1; min-width: 0; }
+.roleCardLabel { font-size: 14px; font-weight: 700; color: var(--color-text); }
+.roleCardDesc  { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.roleCardSubs  { display: flex; gap: 5px; flex-wrap: wrap; margin-top: 6px; }
+.roleSubChip   {
+  font-size: 10.5px; font-weight: 600; padding: 2px 8px;
+  border-radius: 10px; background: var(--color-bg); color: var(--color-muted);
+  border: 1px solid var(--color-border);
+}
+.roleCardArrow { font-size: 20px; color: var(--color-muted); flex-shrink: 0; }
+
+/* Messages preview */
+.messagesSection {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-sm);
+}
+.emptyMsg {
+  display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 24px 0; color: var(--color-muted); font-size: 13px;
+}
+.emptyMsg span:first-child { font-size: 28px; opacity: .4; }
+
+.threadPreview {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 10px; border-radius: var(--radius);
+  cursor: pointer; transition: background .1s; margin-bottom: 4px;
+}
+.threadPreview:hover { background: var(--color-surface-2); }
+.threadPreview.threadUnread { background: rgba(37,99,235,.04); }
+.threadPreviewInfo { flex: 1; min-width: 0; }
+.threadPreviewName { font-size: 13px; font-weight: 600; }
+.threadPreviewMsg  { font-size: 12px; color: var(--color-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.threadDot { width: 8px; height: 8px; border-radius: 50%; background: var(--blue); flex-shrink: 0; }
+
+/* Stats section */
+.statsSection {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 16px; box-shadow: var(--shadow-sm);
+}
+.miniStats { display: grid; grid-template-columns: repeat(2,1fr); gap: 12px; }
+.miniStat  { text-align: center; padding: 10px 6px; background: var(--color-bg); border-radius: var(--radius); }
+.miniStatIcon { font-size: 20px; margin-bottom: 6px; }
+.miniStatVal  { font-family: var(--font-display); font-size: 22px; font-weight: 800; }
+.miniStatLbl  { font-size: 11px; color: var(--color-muted); margin-top: 2px; }
+
+@media (max-width: 768px) {
+  .grid { grid-template-columns: 1fr; }
+  .rolesSection { grid-column: span 1; }
+  .profileTop { flex-direction: column; }
+  .profileStats { width: 100%; justify-content: space-around; }
+}

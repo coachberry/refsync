@@ -1,0 +1,84 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+/* Filters */
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.searchWrap {
+  display: flex; align-items: center; gap: 8px; flex: 1; min-width: 200px;
+  background: var(--color-surface); border: 1.5px solid var(--color-border);
+  border-radius: var(--radius); padding: 7px 12px; transition: border-color .14s;
+}
+.searchWrap:focus-within { border-color: var(--blue); }
+.searchIcon  { width: 15px; height: 15px; color: var(--color-muted); flex-shrink: 0; }
+.searchInput { background: none; border: none; outline: none; font-size: 13px; font-family: var(--font-body); width: 100%; }
+.roleFilterRow { display: flex; gap: 6px; }
+.filterBtn {
+  padding: 6px 14px; border-radius: var(--radius); border: 1px solid var(--color-border);
+  background: var(--color-surface); font-size: 12.5px; font-weight: 600;
+  cursor: pointer; font-family: var(--font-body); transition: all .12s;
+}
+.filterActive { background: var(--sidebar-bg); color: #fff; border-color: var(--sidebar-bg); }
+
+/* Roster table */
+.rosterTable { width: 100%; }
+.rosterHeader {
+  display: grid; grid-template-columns: 2fr 1.2fr 0.8fr 0.6fr 0.8fr 0.8fr;
+  gap: 8px; padding: 9px 16px;
+  font-size: 10.5px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--color-muted);
+  border-bottom: 1px solid var(--color-border); background: var(--color-surface-2);
+}
+.rosterRow {
+  display: grid; grid-template-columns: 2fr 1.2fr 0.8fr 0.6fr 0.8fr 0.8fr;
+  gap: 8px; padding: 11px 16px; border-bottom: 1px solid var(--color-border);
+  align-items: center; transition: background .1s;
+}
+.rosterRow:last-child { border-bottom: none; }
+.rosterRow:hover { background: var(--color-surface-2); }
+.rosterCell { display: flex; align-items: center; }
+
+.officialInfo { display: flex; align-items: center; gap: 10px; }
+.officialName { font-size: 13.5px; font-weight: 600; }
+.officialEmail { font-size: 11.5px; color: var(--color-muted); }
+.subRoles { display: flex; gap: 5px; flex-wrap: wrap; }
+.certLevel { font-size: 12.5px; color: var(--color-muted); }
+.gamesCount { font-family: var(--font-display); font-size: 14px; font-weight: 700; }
+.noData { color: var(--color-muted); font-size: 13px; }
+.rowActions { display: flex; gap: 5px; }
+
+.skeletons { display: flex; flex-direction: column; gap: 10px; }
+
+/* Invite modal */
+.modeToggle {
+  display: flex; background: var(--color-surface-2); border-radius: var(--radius);
+  padding: 4px; gap: 4px; margin-bottom: 16px;
+}
+.modeBtn {
+  flex: 1; padding: 7px 12px; border-radius: var(--radius-sm); border: none;
+  font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-body);
+  background: transparent; color: var(--color-muted); transition: all .13s;
+}
+.modeActive { background: var(--color-surface); color: var(--color-text); box-shadow: var(--shadow-sm); }
+.inviteHint { font-size: 13px; color: var(--color-muted); margin-bottom: 14px; line-height: 1.5; }
+
+.searchRow { display: flex; gap: 10px; align-items: flex-end; }
+.searchResults { display: flex; flex-direction: column; gap: 8px; margin-top: 12px; }
+.searchResult {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); background: var(--color-surface-2);
+}
+.searchResultInfo { flex: 1; }
+.searchResultName { font-size: 13.5px; font-weight: 600; }
+.searchResultSub  { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.noResults { font-size: 13px; color: var(--color-muted); text-align: center; margin-top: 14px; }
+
+@media (max-width: 768px) {
+  .rosterHeader { display: none; }
+  .rosterRow { grid-template-columns: 1fr auto; gap: 10px; }
+  .rosterCell:nth-child(2),
+  .rosterCell:nth-child(3),
+  .rosterCell:nth-child(4) { display: none; }
+}

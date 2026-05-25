@@ -1,0 +1,164 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+/* ── Group cards ── */
+.groupList { display: flex; flex-direction: column; gap: 14px; }
+
+.groupCard {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.groupCardHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.groupCardLeft { flex: 1; min-width: 0; }
+.groupName { font-family: var(--font-display); font-size: 16px; font-weight: 700; }
+.groupMeta { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12.5px; color: var(--color-muted); margin-top: 3px; }
+.groupInfo { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; }
+.infoRow   { font-size: 13px; color: var(--color-text-2); }
+
+.fillRow { display: flex; flex-direction: column; gap: 5px; }
+.fillMeta { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--color-muted); }
+.fillPct  { font-weight: 700; color: var(--color-text); }
+.fillBar  { height: 6px; background: var(--color-bg); border-radius: 99px; overflow: hidden; }
+.fillProgress { height: 100%; background: linear-gradient(90deg, var(--blue), var(--teal)); border-radius: 99px; transition: width .4s; }
+
+.schedRow      { font-size: 13px; }
+.schedAssigned { color: var(--color-text-2); }
+.schedNone     { color: var(--amber); font-weight: 600; }
+
+.groupActions { display: flex; gap: 8px; flex-wrap: wrap; padding-top: 4px; border-top: 1px solid var(--color-border); }
+
+/* ── Add games ── */
+.gameRows { display: flex; flex-direction: column; gap: 16px; }
+
+.gameRow {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 14px;
+}
+
+.gameRowHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.gameRowNum { font-size: 12px; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: .6px; }
+
+/* Line 1: 4 equal columns */
+.gameLine1 {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+/* Line 2: 2 equal columns */
+.gameLine2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.gameField   { display: flex; flex-direction: column; }
+.gameFieldSm { display: flex; flex-direction: column; }
+
+/* ── Request scheduler modal ── */
+.section { margin-bottom: 18px; }
+.sectionLabel {
+  font-size: 11px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .8px;
+  color: var(--color-muted); margin-bottom: 10px;
+}
+.schedOption {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 11px 14px; border-radius: var(--radius);
+  border: 1px solid var(--color-border); margin-bottom: 8px;
+  background: var(--color-surface-2);
+}
+.schedOptionInfo { flex: 1; }
+.schedOptionName { font-size: 14px; font-weight: 600; }
+.schedOptionOrg  { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.divider { border: none; border-top: 1px solid var(--color-border); margin: 16px 0; }
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .gameLine1 { grid-template-columns: 1fr 1fr; }
+  .gameLine2 { grid-template-columns: 1fr; }
+}
+@media (max-width: 420px) {
+  .gameLine1 { grid-template-columns: 1fr; }
+}
+
+/* Invoice preview in Add Games modal */
+.invoicePreview {
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 12px;
+  align-items: center;
+}
+.invoicePreviewItem { display: flex; flex-direction: column; gap: 2px; }
+.invoicePreviewItem span { font-size: 11px; color: var(--color-muted); text-transform: uppercase; letter-spacing: .5px; }
+.invoicePreviewItem strong { font-family: var(--font-display); font-size: 16px; font-weight: 800; }
+.invoiceAmt { color: var(--blue) !important; }
+.payAmt     { color: var(--teal) !important; }
+.invoicePreviewNote { grid-column: span 3; font-size: 11.5px; color: var(--color-muted); font-style: italic; }
+
+/* Invoice summary in Request Scheduler modal */
+.invoiceSummaryBox {
+  background: var(--ice);
+  border: 1px solid var(--ice-dark);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+  margin-bottom: 18px;
+}
+.invSumTitle { font-size: 12px; font-weight: 700; color: #1a6a9e; margin-bottom: 10px; text-transform: uppercase; letter-spacing: .6px; }
+.invSumRow  { display: flex; justify-content: space-between; font-size: 13px; color: var(--color-text-2); margin-bottom: 4px; }
+.invSumTotal { display: flex; justify-content: space-between; font-size: 14px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--ice-dark); }
+.invSumTotal strong { font-family: var(--font-display); font-size: 18px; font-weight: 800; color: var(--blue); }
+
+/* Officials tag on group card */
+.officialsTag {
+  background: var(--ice); color: #1a6a9e;
+  padding: 2px 8px; border-radius: 10px;
+  font-size: 11px; font-weight: 600;
+}
+
+/* Scheduler status section */
+.schedulerStatus { display: flex; flex-direction: column; gap: 5px; font-size: 13px; }
+
+/* Crew slots in Add Games */
+.crewSlots { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--color-border); }
+.crewSlotsLabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--color-muted); margin-bottom: 8px; }
+.crewSlotsRow { display: flex; gap: 14px; flex-wrap: wrap; }
+.crewSlot { display: flex; flex-direction: column; gap: 4px; }
+
+/* Request scheduler tabs */
+.reqTabs { display: flex; border-bottom: 1px solid var(--color-border); margin-bottom: 16px; }
+.reqTab  {
+  flex: 1; padding: 10px 14px; border: none; background: transparent;
+  font-size: 13px; font-weight: 600; cursor: pointer; font-family: var(--font-body);
+  color: var(--color-muted); border-bottom: 2px solid transparent; transition: all .12s;
+}
+.reqTab:hover    { color: var(--color-text); background: var(--color-surface-2); }
+.reqTabActive    { color: var(--color-text); border-bottom-color: var(--blue); }

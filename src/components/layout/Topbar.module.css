@@ -115,6 +115,12 @@
 
 .avatar { cursor: pointer; }
 
+.avatarBtn {
+  background: none; border: none; padding: 0; cursor: pointer;
+  border-radius: 50%; transition: opacity .12s;
+}
+.avatarBtn:hover { opacity: .85; }
+
 .pageActions {
   display: flex;
   align-items: center;
