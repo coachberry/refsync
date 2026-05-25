@@ -2,9 +2,9 @@ import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { subscribeRFQsForScheduler, updateRFQ } from '@/services/firestore'
 import { db } from '@/lib/firebase'
-import { addDoc, collection, serverTimestamp } from 'firebase/firestore'
+import { addDoc, collection, serverTimestamp, getDocs, query, where } from 'firebase/firestore'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
-import { Input, Textarea, FormRow } from '@/components/ui/Input'
+import { Input, Textarea } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
 import { format } from 'date-fns'
@@ -35,8 +35,8 @@ export default function SchedQuotes() {
     return unsub
   }, [user])
 
-  const openRfqs    = rfqs.filter(r => r.status === 'open')
-  const activeRfqs  = rfqs.filter(r => ['quoted','accepted','not_selected','declined'].includes(r.status))
+  const openRfqs   = rfqs.filter(r => r.status === 'open')
+  const activeRfqs = rfqs.filter(r => ['quoted','accepted','not_selected','declined'].includes(r.status))
 
   if (loading) return <div className={styles.center}><Spinner size="lg" /></div>
 
@@ -48,14 +48,12 @@ export default function SchedQuotes() {
       </div>
 
       {rfqs.length === 0 ? (
-        <Card>
-          <CardBody>
-            <EmptyState icon="📬" title="No quote requests yet" message="When a game director selects you to quote for their event, it will appear here." />
-          </CardBody>
-        </Card>
+        <Card><CardBody>
+          <EmptyState icon="📬" title="No quote requests yet"
+            message="When a game director selects you to quote for their event, it will appear here." />
+        </CardBody></Card>
       ) : (
         <>
-          {/* Open requests — need a quote */}
           {openRfqs.length > 0 && (
             <>
               <div className={styles.sectionLabel}>📬 Awaiting Your Quote ({openRfqs.length})</div>
@@ -66,8 +64,6 @@ export default function SchedQuotes() {
               </div>
             </>
           )}
-
-          {/* Active/historical */}
           {activeRfqs.length > 0 && (
             <>
               <div className={styles.sectionLabel}>History</div>
@@ -98,9 +94,6 @@ export default function SchedQuotes() {
 function RFQCard({ rfq, onQuote }) {
   const meta = STATUS_META[rfq.status] ?? STATUS_META.open
   const receivedAt = rfq.createdAt?.toDate?.() ?? (rfq.createdAt ? new Date(rfq.createdAt) : null)
-
-  const refRate = rfq.refInvoiceRate
-  const skRate  = rfq.skInvoiceRate
   const totalHours = rfq.totalHours ?? 0
   const totalGames = rfq.gameCount  ?? 0
 
@@ -115,28 +108,27 @@ function RFQCard({ rfq, onQuote }) {
         <Badge variant={meta.variant}>{meta.icon} {meta.label}</Badge>
       </div>
 
-      {/* Game details */}
       <div className={styles.rfqDetails}>
         <div className={styles.rfqDetail}><span>🏒 Games</span><strong>{totalGames}</strong></div>
         <div className={styles.rfqDetail}><span>⏱ Hours</span><strong>{totalHours.toFixed(2)}hrs</strong></div>
         <div className={styles.rfqDetail}><span>Officials</span><strong>{{both:'Refs & SKs', referees:'Refs Only', scorekeepers:'SKs Only'}[rfq.officialsNeeded] ?? '—'}</strong></div>
-        {rfq.startDate && <div className={styles.rfqDetail}><span>📅 Dates</span><strong>{format(new Date(rfq.startDate), 'MMM d')}{rfq.endDate ? ` – ${format(new Date(rfq.endDate), 'MMM d')}` : ''}</strong></div>}
+        {rfq.startDate && (
+          <div className={styles.rfqDetail}>
+            <span>📅 Dates</span>
+            <strong>{format(new Date(rfq.startDate), 'MMM d')}{rfq.endDate ? ` – ${format(new Date(rfq.endDate), 'MMM d')}` : ''}</strong>
+          </div>
+        )}
         {rfq.venues?.length > 0 && <div className={styles.rfqDetail}><span>📍 Venues</span><strong>{rfq.venues.join(', ')}</strong></div>}
+        {rfq.budget && <div className={styles.rfqDetail}><span>💰 Budget</span><strong>${Number(rfq.budget).toLocaleString()}</strong></div>}
       </div>
 
-      {/* Budget guidance */}
-      {(refRate || skRate) && (
-        <div className={styles.rfqBudget}>
-          <div className={styles.rfqBudgetLabel}>Director's Budget Guidance</div>
-          {refRate && <div className={styles.rfqBudgetRow}>🏒 Ref: ${refRate.hourlyRate}/hr + ${refRate.perGameFee}/game → Est. <strong>${(refRate.hourlyRate * totalHours + refRate.perGameFee * totalGames).toFixed(2)}</strong></div>}
-          {skRate  && <div className={styles.rfqBudgetRow}>📋 SK: ${skRate.hourlyRate}/hr + ${skRate.perGameFee}/game → Est. <strong>${(skRate.hourlyRate * totalHours + skRate.perGameFee * totalGames).toFixed(2)}</strong></div>}
-        </div>
-      )}
-
-      {/* Quote submitted */}
       {rfq.quoteAmount && (
         <div className={styles.rfqQuoteSent}>
           Your quote: <strong>${rfq.quoteAmount.toFixed(2)}</strong>
+          {rfq.quotePriceMode && <span className={styles.rfqQuoteMode}> · {
+            rfq.quotePriceMode === 'flat'     ? 'Flat rate' :
+            rfq.quotePriceMode === 'per_game' ? 'Per game'  : 'Per game breakdown'
+          }</span>}
           {rfq.quoteNote && <span> · "{rfq.quoteNote}"</span>}
         </div>
       )}
@@ -160,51 +152,87 @@ function RFQCard({ rfq, onQuote }) {
 }
 
 // ── Submit Quote Modal ────────────────────────────────────────────────────────
+const PRICE_MODES = [
+  { id: 'flat',       label: '💰 Flat Rate',       desc: 'One total price for the entire event' },
+  { id: 'per_game',   label: '🏒 Price Per Game',   desc: 'Set one price × number of games' },
+  { id: 'per_game_list', label: '📋 Price Per Game (Individual)', desc: 'Set a different price for each game' },
+]
+
 function SubmitQuoteModal({ open, onClose, rfq, schedulerUid, schedulerName }) {
   const [saving, setSaving]       = useState(false)
-  const [amount, setAmount]       = useState('')
-  const [breakdown, setBreakdown] = useState('')
+  const [priceMode, setPriceMode] = useState('flat')
+  const [flatAmount, setFlatAmount] = useState('')
+  const [perGamePrice, setPerGamePrice] = useState('')
+  const [gameList, setGameList]   = useState([])
+  const [loadingGames, setLoadingGames] = useState(false)
   const [note, setNote]           = useState('')
 
-  // Pre-fill with estimated amount
-  useEffect(() => {
-    if (!rfq) return
-    const refRate = rfq.refInvoiceRate
-    const skRate  = rfq.skInvoiceRate
-    const hrs = rfq.totalHours ?? 0
-    const games = rfq.gameCount ?? 0
-    let est = 0
-    if (refRate) est += refRate.hourlyRate * hrs + refRate.perGameFee * games
-    if (skRate)  est += skRate.hourlyRate  * hrs + skRate.perGameFee  * games
-    if (est > 0) setAmount(est.toFixed(2))
+  const totalGames = rfq?.gameCount ?? 0
 
-    // Pre-fill breakdown
-    const lines = []
-    if (refRate) lines.push(`Referee scheduling: ${hrs}hrs × $${refRate.hourlyRate}/hr + ${games} games × $${refRate.perGameFee}/game = $${(refRate.hourlyRate * hrs + refRate.perGameFee * games).toFixed(2)}`)
-    if (skRate)  lines.push(`Scorekeeper scheduling: ${hrs}hrs × $${skRate.hourlyRate}/hr + ${games} games × $${skRate.perGameFee}/game = $${(skRate.hourlyRate * hrs + skRate.perGameFee * games).toFixed(2)}`)
-    if (lines.length) setBreakdown(lines.join('\n'))
-  }, [rfq])
+  // Load individual games when per_game_list mode selected
+  useEffect(() => {
+    if (priceMode !== 'per_game_list' || !rfq?.groupId) return
+    if (gameList.length > 0) return // already loaded
+    setLoadingGames(true)
+    getDocs(query(collection(db, 'games'), where('groupId', '==', rfq.groupId)))
+      .then(snap => {
+        const games = snap.docs
+          .map(d => ({ id: d.id, ...d.data(), quotePrice: '' }))
+          .sort((a, b) => {
+            const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
+            const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
+            return da - db_
+          })
+        setGameList(games)
+      })
+      .finally(() => setLoadingGames(false))
+  }, [priceMode, rfq?.groupId])
+
+  const updateGamePrice = (id, price) =>
+    setGameList(gl => gl.map(g => g.id === id ? { ...g, quotePrice: price } : g))
+
+  // Calculate totals
+  const flatTotal    = Number(flatAmount) || 0
+  const perGameTotal = (Number(perGamePrice) || 0) * totalGames
+  const perListTotal = gameList.reduce((s, g) => s + (Number(g.quotePrice) || 0), 0)
+
+  const quoteTotal = priceMode === 'flat'          ? flatTotal
+                   : priceMode === 'per_game'      ? perGameTotal
+                   : perListTotal
+
+  // Build breakdown string
+  const buildBreakdown = () => {
+    if (priceMode === 'flat')     return `Flat rate for ${totalGames} games`
+    if (priceMode === 'per_game') return `$${perGamePrice}/game × ${totalGames} games = $${perGameTotal.toFixed(2)}`
+    return gameList.map(g => {
+      const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
+      return `${g.homeTeam} vs ${g.awayTeam} (${format(gd, 'MMM d')}) — $${Number(g.quotePrice || 0).toFixed(2)}`
+    }).join('\n')
+  }
 
   const handleSubmit = async () => {
-    if (!amount || isNaN(Number(amount))) { toast.error('Enter a valid amount'); return }
+    if (!quoteTotal || quoteTotal <= 0) { toast.error('Enter a price'); return }
     setSaving(true)
     try {
       await updateRFQ(rfq.id, {
-        status:        'quoted',
+        status:         'quoted',
         schedulerName,
-        quoteAmount:   Number(amount),
-        quoteBreakdown: breakdown,
-        quoteNote:     note,
-        quotedAt:      new Date().toISOString(),
+        quoteAmount:    quoteTotal,
+        quotePriceMode: priceMode,
+        quoteBreakdown: buildBreakdown(),
+        quoteNote:      note,
+        quoteGamePrices: priceMode === 'per_game_list'
+          ? gameList.map(g => ({ gameId: g.id, homeTeam: g.homeTeam, awayTeam: g.awayTeam, price: Number(g.quotePrice) || 0 }))
+          : null,
+        quotedAt: new Date().toISOString(),
       })
-      // Notify director
       await addDoc(collection(db, 'notifications'), {
-        uid:     rfq.directorUid,
-        type:    'rfq',
-        title:   'Quote Received',
-        message: `${schedulerName} submitted a quote of $${Number(amount).toFixed(2)} for "${rfq.groupName}"`,
-        read:    false,
-        link:    '/director/events',
+        uid:       rfq.directorUid,
+        type:      'rfq',
+        title:     '💬 Quote Received',
+        message:   `${schedulerName} submitted a quote of $${quoteTotal.toFixed(2)} for "${rfq.groupName}"`,
+        read:      false,
+        link:      '/director/events',
         createdAt: serverTimestamp(),
       })
       toast.success('Quote submitted! The director will be notified.')
@@ -212,50 +240,154 @@ function SubmitQuoteModal({ open, onClose, rfq, schedulerUid, schedulerName }) {
     } catch (err) {
       toast.error('Failed to submit quote')
       console.error(err)
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   return (
     <Modal open={open} onClose={onClose} title={`Submit Quote — ${rfq?.groupName ?? ''}`} size="md"
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSubmit}>Submit Quote</Button></>}
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={saving} onClick={handleSubmit}
+            disabled={!quoteTotal || quoteTotal <= 0}>
+            Submit Quote {quoteTotal > 0 ? `— $${quoteTotal.toFixed(2)}` : ''}
+          </Button>
+        </>
+      }
     >
       <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 16, lineHeight: 1.5 }}>
-        Review the game details and submit your price. The director will see your quote and can accept or decline.
+        Choose how you want to price this event. The director will see your full breakdown.
       </p>
 
-      <Input
-        label="Your Price ($) *"
-        type="number"
-        step="0.01"
-        placeholder="0.00"
-        value={amount}
-        onChange={e => setAmount(e.target.value)}
-        hint="This is what you'll invoice the director if they accept"
-      />
+      {/* Price mode selector */}
+      <div style={{ marginBottom: 18 }}>
+        <label style={labelSt}>Pricing Method</label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {PRICE_MODES.map(m => (
+            <div key={m.id}
+              onClick={() => setPriceMode(m.id)}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 12,
+                padding: '10px 14px', borderRadius: 'var(--radius)',
+                border: `2px solid ${priceMode === m.id ? 'var(--blue)' : 'var(--color-border)'}`,
+                background: priceMode === m.id ? 'rgba(37,99,235,.05)' : 'var(--color-surface)',
+                cursor: 'pointer', transition: 'all .13s',
+              }}
+            >
+              <div style={{
+                width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                border: `2px solid ${priceMode === m.id ? 'var(--blue)' : 'var(--color-border)'}`,
+                background: priceMode === m.id ? 'var(--blue)' : 'transparent',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>
+                {priceMode === m.id && <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#fff' }} />}
+              </div>
+              <div>
+                <div style={{ fontSize: 13.5, fontWeight: 700 }}>{m.label}</div>
+                <div style={{ fontSize: 12, color: 'var(--color-muted)', marginTop: 1 }}>{m.desc}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
 
-      <Textarea
-        label="Price Breakdown (optional)"
-        rows={4}
-        placeholder="Hourly rate × hours + per-game fee × games…"
-        value={breakdown}
-        onChange={e => setBreakdown(e.target.value)}
-      />
+      {/* ── Flat rate ── */}
+      {priceMode === 'flat' && (
+        <Input
+          label="Total Price ($) *"
+          type="number" step="0.01" placeholder="0.00"
+          value={flatAmount}
+          onChange={e => setFlatAmount(e.target.value)}
+          hint={`${totalGames} games total`}
+        />
+      )}
 
-      <Textarea
-        label="Note to Director (optional)"
-        rows={2}
-        placeholder="Any additional info, availability notes, or conditions…"
-        value={note}
-        onChange={e => setNote(e.target.value)}
-      />
+      {/* ── Per game rate ── */}
+      {priceMode === 'per_game' && (
+        <div>
+          <Input
+            label="Price Per Game ($) *"
+            type="number" step="0.01" placeholder="0.00"
+            value={perGamePrice}
+            onChange={e => setPerGamePrice(e.target.value)}
+            hint={`× ${totalGames} games`}
+          />
+          {perGamePrice && (
+            <div className={styles.calcPreview}>
+              ${perGamePrice} × {totalGames} games = <strong>${perGameTotal.toFixed(2)}</strong>
+            </div>
+          )}
+        </div>
+      )}
 
-      {amount && (
-        <div style={{ background: 'rgba(0,184,153,.08)', border: '1px solid rgba(0,184,153,.2)', borderRadius: 'var(--radius)', padding: '12px 14px', fontSize: 14, fontWeight: 700, color: 'var(--teal)' }}>
-          You are quoting: ${Number(amount || 0).toFixed(2)}
+      {/* ── Per game list ── */}
+      {priceMode === 'per_game_list' && (
+        <div>
+          {loadingGames ? (
+            <div style={{ textAlign: 'center', padding: 20 }}><Spinner /></div>
+          ) : gameList.length === 0 ? (
+            <div style={{ fontSize: 13, color: 'var(--color-muted)', padding: '10px 0' }}>
+              No games found for this event yet.
+            </div>
+          ) : (
+            <div className={styles.gameListPricing}>
+              <div className={styles.gameListHeader}>
+                <span>Game</span><span>Date</span><span>Price</span>
+              </div>
+              {gameList.map(g => {
+                const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
+                return (
+                  <div key={g.id} className={styles.gameListRow}>
+                    <div className={styles.gameListTitle}>
+                      <span>{g.homeTeam} vs {g.awayTeam}</span>
+                      <span className={styles.gameListVenue}>{g.venue} · {g.duration}hr</span>
+                    </div>
+                    <div className={styles.gameListDate}>{format(gd, 'MMM d')}</div>
+                    <div className={styles.gameListPrice}>
+                      <input
+                        type="number" step="0.01" placeholder="0.00"
+                        value={g.quotePrice}
+                        onChange={e => updateGamePrice(g.id, e.target.value)}
+                        style={priceInputSt}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+              <div className={styles.gameListTotal}>
+                <span>Total</span>
+                <strong>${perListTotal.toFixed(2)}</strong>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Note */}
+      <div style={{ marginTop: 14 }}>
+        <Textarea
+          label="Note to Director (optional)"
+          rows={2}
+          placeholder="Any additional info, availability, or conditions…"
+          value={note}
+          onChange={e => setNote(e.target.value)}
+        />
+      </div>
+
+      {/* Total preview */}
+      {quoteTotal > 0 && (
+        <div className={styles.totalPreview}>
+          <span>Your quote total</span>
+          <strong>${quoteTotal.toFixed(2)}</strong>
         </div>
       )}
     </Modal>
   )
+}
+
+const labelSt     = { display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 8 }
+const priceInputSt = {
+  width: '90px', padding: '6px 8px', borderRadius: 6,
+  border: '1.5px solid var(--color-border)', background: 'var(--color-surface)',
+  fontSize: 13, fontFamily: 'var(--font-body)', outline: 'none', textAlign: 'right',
 }
