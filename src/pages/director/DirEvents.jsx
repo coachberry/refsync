@@ -407,11 +407,12 @@ function EditGroupModal({ open, onClose, group }) {
 }
 
 // ── CSV Template columns and download ────────────────────────────────────────
-const CSV_HEADERS = ['home_team','away_team','game_date','game_time','venue','division','duration_hours','notes']
-const CSV_EXAMPLE = ['Nashville Predators','Chicago Blackhawks','2026-07-15','18:00','Ford Ice Center - Antioch','14UAA','1.5','Optional notes']
+const CSV_HEADERS = ['home_team', 'away_team', 'game_date', 'game_time', 'venue', 'division', 'duration_hours', 'referees', 'linesmen', 'scorekeepers']
+const CSV_NOTES   = ['Team name', 'Team name', 'MM-DD-YYYY', 'HH:MM (24hr)', 'Venue name', 'Division/age group', '1 / 1.25 / 1.5 / 1.75 / 2', '# of refs needed', '# of linesmen needed', '# of scorekeepers needed']
+const CSV_EXAMPLE = ['Nashville Predators', 'Chicago Blackhawks', '07-15-2026', '18:00', 'Ford Ice Center - Antioch', '14UAA', '1.5', '2', '2', '1']
 
 const downloadCSVTemplate = () => {
-  const rows = [CSV_HEADERS, CSV_EXAMPLE]
+  const rows = [CSV_HEADERS, CSV_NOTES, CSV_EXAMPLE]
   const csv  = rows.map(r => r.map(v => `"${v}"`).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
   const url  = URL.createObjectURL(blob)
@@ -448,14 +449,16 @@ function AddGamesModal({ open, onClose, group }) {
         const headers  = parseRow(lines[0]).map(h => h.toLowerCase().replace(/\s+/g, '_'))
 
         const idx = {
-          homeTeam: headers.findIndex(h => h.includes('home')),
-          awayTeam: headers.findIndex(h => h.includes('away')),
-          gameDate: headers.findIndex(h => h.includes('date')),
-          gameTime: headers.findIndex(h => h.includes('time')),
-          venue:    headers.findIndex(h => h.includes('venue')),
-          division: headers.findIndex(h => h.includes('division')),
-          duration: headers.findIndex(h => h.includes('duration') || h.includes('hour')),
-          notes:    headers.findIndex(h => h.includes('note')),
+          homeTeam:     headers.findIndex(h => h.includes('home')),
+          awayTeam:     headers.findIndex(h => h.includes('away')),
+          gameDate:     headers.findIndex(h => h.includes('date')),
+          gameTime:     headers.findIndex(h => h.includes('time')),
+          venue:        headers.findIndex(h => h.includes('venue')),
+          division:     headers.findIndex(h => h.includes('division')),
+          duration:     headers.findIndex(h => h.includes('duration') || h.includes('hour')),
+          refs:         headers.findIndex(h => h === 'referees' || h === 'refs'),
+          linesmen:     headers.findIndex(h => h.includes('linesman') || h.includes('linesmen')),
+          scorekeepers: headers.findIndex(h => h.includes('scorekeeper')),
         }
 
         if (idx.homeTeam < 0 || idx.awayTeam < 0 || idx.gameDate < 0) {
@@ -464,30 +467,55 @@ function AddGamesModal({ open, onClose, group }) {
 
         const parsed = []
         const errors = []
-        lines.slice(1).forEach((line, i) => {
+
+        // Skip the notes/instructions row (row 2) if it doesn't look like a real game
+        const dataLines = lines.slice(1).filter(line => {
+          const cols = parseRow(line)
+          const firstCol = cols[0]?.toLowerCase() ?? ''
+          // Skip if it looks like instructions (contains 'name', 'format', 'team', '#')
+          return !['team name', 'team', 'format', '#', 'mm-dd', 'hh:mm'].some(skip => firstCol.includes(skip))
+        })
+
+        dataLines.forEach((line, i) => {
           const cols = parseRow(line)
           if (cols.every(c => !c)) return // skip empty rows
 
           const homeTeam = cols[idx.homeTeam] ?? ''
           const awayTeam = cols[idx.awayTeam] ?? ''
-          const gameDate = cols[idx.gameDate] ?? ''
+          const rawDate  = cols[idx.gameDate] ?? ''
           const gameTime = idx.gameTime >= 0 ? (cols[idx.gameTime] ?? '') : ''
           const venue    = idx.venue    >= 0 ? (cols[idx.venue]    ?? '') : ''
           const division = idx.division >= 0 ? (cols[idx.division] ?? '') : ''
           const durRaw   = idx.duration >= 0 ? (cols[idx.duration] ?? '') : ''
           const duration = parseFloat(durRaw) || 1.5
+          // Crew slots from CSV — fall back to event defaults
+          const csvRefs  = idx.refs         >= 0 ? Number(cols[idx.refs])         || 0 : null
+          const csvLines = idx.linesmen     >= 0 ? Number(cols[idx.linesmen])     || 0 : null
+          const csvSKs   = idx.scorekeepers >= 0 ? Number(cols[idx.scorekeepers]) || 0 : null
 
-          if (!homeTeam || !awayTeam)       { errors.push(`Row ${i + 2}: missing home or away team`); return }
-          if (!gameDate.match(/^\d{4}-\d{2}-\d{2}$/)) { errors.push(`Row ${i + 2}: date must be YYYY-MM-DD format`); return }
+          if (!homeTeam || !awayTeam) { errors.push(`Row ${i + 2}: missing home or away team`); return }
 
+          // Convert MM-DD-YYYY → YYYY-MM-DD for date input
+          let gameDate = rawDate
+          const mmddyyyy = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
+          const yyyymmdd = rawDate.match(/^\d{4}-\d{2}-\d{2}$/)
+          if (mmddyyyy) {
+            gameDate = `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,'0')}-${mmddyyyy[2].padStart(2,'0')}`
+          } else if (!yyyymmdd) {
+            errors.push(`Row ${i + 2}: date must be MM-DD-YYYY (got "${rawDate}")`); return
+          }
+
+          const defaultCrew = DEFAULT_CREW[group?.officialsNeeded ?? 'both']
           parsed.push({
             homeTeam, awayTeam, gameDate,
-            gameTime: gameTime || '12:00',
-            venue:    venue || group?.venues?.[0] || '',
-            division: division || '',
-            duration: [1, 1.25, 1.5, 1.75, 2].includes(duration) ? duration : 0,
+            gameTime:    gameTime || '12:00',
+            venue:       venue || group?.venues?.[0] || '',
+            division:    division || '',
+            duration:    [1, 1.25, 1.5, 1.75, 2].includes(duration) ? duration : 0,
             customDuration: [1, 1.25, 1.5, 1.75, 2].includes(duration) ? '' : String(duration),
-            ...DEFAULT_CREW[group?.officialsNeeded ?? 'both'],
+            refs:        csvRefs  ?? defaultCrew.refs,
+            linesmen:    csvLines ?? defaultCrew.linesmen,
+            scorekeepers:csvSKs   ?? defaultCrew.scorekeepers,
           })
         })
 
@@ -585,45 +613,12 @@ function AddGamesModal({ open, onClose, group }) {
         </div>
       )}
 
-      {/* Invoice preview */}
-      <div className={styles.invoicePreview}>
-        <div className={styles.invoicePreviewItem}>
-          <span>Total hours</span><strong>{totalHours.toFixed(2)} hrs</strong>
-        </div>
-        {needsRef && (
-          <div className={styles.invoicePreviewItem}>
-            <span>🏒 Ref invoice</span>
-            <strong className={styles.invoiceAmt}>${refInvoice.toFixed(2)}</strong>
-          </div>
-        )}
-        {needsSK && (
-          <div className={styles.invoicePreviewItem}>
-            <span>📋 SK invoice</span>
-            <strong className={styles.invoiceAmt}>${skInvoice.toFixed(2)}</strong>
-          </div>
-        )}
-        {needsSK && (
-          <div className={styles.invoicePreviewItem}>
-            <span>SK payroll (est.)</span>
-            <strong className={styles.payAmt}>${skPayTotal.toFixed(2)}</strong>
-          </div>
-        )}
-        <div className={styles.invoicePreviewNote} style={{ gridColumn: 'span 4' }}>
-          {needsRef && `Ref: $${refRate.hourlyRate}/hr + $${refRate.perGameFee}/game  `}
-          {needsSK  && `SK: $${skRate.hourlyRate}/hr + $${skRate.perGameFee}/game`}
-        </div>
-      </div>
-
       <div className={styles.gameRows}>
         {games.map((g, i) => (
           <div key={i} className={styles.gameRow}>
             <div className={styles.gameRowHeader}>
               <span className={styles.gameRowNum}>Game {i + 1}</span>
-              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-                {needsRef && <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>🏒 ${(refRate.hourlyRate * getDur(g)).toFixed(2)}/ref</span>}
-                {needsSK  && <span style={{ fontSize: 12, color: 'var(--color-muted)' }}>📋 ${(skRate.hourlyRate * getDur(g)).toFixed(2)}/SK</span>}
-                {games.length > 1 && <button style={removeSt} type="button" onClick={() => removeRow(i)}>✕ Remove</button>}
-              </div>
+              {games.length > 1 && <button style={removeSt} type="button" onClick={() => removeRow(i)}>✕ Remove</button>}
             </div>
 
             {/* Line 1 */}
@@ -661,32 +656,30 @@ function AddGamesModal({ open, onClose, group }) {
               </div>
             </div>
 
-            {/* Crew slots — only show if both needed */}
-            {group?.officialsNeeded === 'both' && (
-              <div className={styles.crewSlots}>
-                <div className={styles.crewSlotsLabel}>Crew Slots per Game</div>
-                <div className={styles.crewSlotsRow}>
-                  {needsRef && (
-                    <>
-                      <div className={styles.crewSlot}>
-                        <label style={labelSt}>🏒 Referees</label>
-                        <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="4" value={g.refs ?? 2} onChange={e => updateGame(i, 'refs', Number(e.target.value))} />
-                      </div>
-                      <div className={styles.crewSlot}>
-                        <label style={labelSt}>Linesmen</label>
-                        <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="4" value={g.linesmen ?? 2} onChange={e => updateGame(i, 'linesmen', Number(e.target.value))} />
-                      </div>
-                    </>
-                  )}
-                  {needsSK && (
+            {/* Crew slots — always show based on what's needed */}
+            <div className={styles.crewSlots}>
+              <div className={styles.crewSlotsLabel}>Crew Slots per Game</div>
+              <div className={styles.crewSlotsRow}>
+                {needsRef && (
+                  <>
                     <div className={styles.crewSlot}>
-                      <label style={labelSt}>📋 Scorekeepers</label>
-                      <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="2" value={g.scorekeepers ?? 1} onChange={e => updateGame(i, 'scorekeepers', Number(e.target.value))} />
+                      <label style={labelSt}>🏒 Referees</label>
+                      <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="4" value={g.refs ?? 2} onChange={e => updateGame(i, 'refs', Number(e.target.value))} />
                     </div>
-                  )}
-                </div>
+                    <div className={styles.crewSlot}>
+                      <label style={labelSt}>Linesmen</label>
+                      <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="4" value={g.linesmen ?? 2} onChange={e => updateGame(i, 'linesmen', Number(e.target.value))} />
+                    </div>
+                  </>
+                )}
+                {needsSK && (
+                  <div className={styles.crewSlot}>
+                    <label style={labelSt}>📋 Scorekeepers</label>
+                    <input style={{ ...inputSt, width: 70 }} type="number" min="0" max="2" value={g.scorekeepers ?? 1} onChange={e => updateGame(i, 'scorekeepers', Number(e.target.value))} />
+                  </div>
+                )}
               </div>
-            )}
+            </div>
           </div>
         ))}
       </div>
