@@ -55,8 +55,8 @@ exports.createConnectAccountLink = onRequest(
 
       const accountLink = await S.accountLinks.create({
         account: stripeAccountId,
-        refresh_url: refreshUrl ?? 'https://refsync.app/profile/finances',
-        return_url:  returnUrl  ?? 'https://refsync.app/profile/finances?stripe=success',
+        refresh_url: refreshUrl ?? 'https://refsync-nine.vercel.app/profile/finances',
+        return_url:  returnUrl  ?? 'https://refsync-nine.vercel.app/profile/finances?stripe=success',
         type: 'account_onboarding',
       })
 
