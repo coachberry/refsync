@@ -1015,14 +1015,17 @@ function QuotesModal({ open, onClose, group, directorUid }) {
   const [declining, setDeclining] = useState(null)
 
   useEffect(() => {
-    if (!open || !group?.id) return
+    if (!open || !group?.id || !directorUid) return
     setLoading(true)
-    const unsub = subscribeRFQsForGroup(group.id, (data) => {
-      setRfqs(data)
+    // Query by directorUid — satisfies security rules (directorUid == request.auth.uid)
+    const unsub = subscribeRFQsForDirector(directorUid, (data) => {
+      // Filter client-side to this group
+      const forGroup = data.filter(r => r.groupId === group.id)
+      setRfqs(forGroup)
       setLoading(false)
     })
     return unsub
-  }, [open, group?.id])
+  }, [open, group?.id, directorUid])
 
   const handleAccept = async (rfq) => {
     if (!window.confirm(`Accept ${rfq.schedulerName ?? 'this scheduler'}'s quote for $${rfq.quoteAmount?.toFixed(2)}?`)) return
