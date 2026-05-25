@@ -24,14 +24,15 @@ export function useRoster() {
       where('status', '==', 'accepted')
     )
     const unsub = onSnapshot(q, async (snap) => {
-      const officialIds = snap.docs.map(d => d.data().toUid)
-      if (!officialIds.length) { setRoster([]); setLoading(false); return }
+      const connections = snap.docs.map(d => ({ connectionId: d.id, ...d.data() }))
+      if (!connections.length) { setRoster([]); setLoading(false); return }
 
-      // Fetch each official's profile
+      // Fetch each official's profile and attach connectionId
       const profiles = await Promise.all(
-        officialIds.map(uid =>
-          import('@/services/firestore').then(m => m.getUser(uid))
-        )
+        connections.map(async conn => {
+          const profile = await import('@/services/firestore').then(m => m.getUser(conn.toUid))
+          return profile ? { ...profile, connectionId: conn.connectionId } : null
+        })
       )
       setRoster(profiles.filter(Boolean))
       setLoading(false)

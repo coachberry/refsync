@@ -55,6 +55,18 @@ export default function SchedRoster() {
     return matchSearch && matchRole
   })
 
+  const [removing, setRemoving] = useState(null)
+
+  const handleRemove = async (official) => {
+    if (!window.confirm(`Remove ${official.displayName} from your roster?`)) return
+    setRemoving(official.connectionId)
+    try {
+      await respondToConnection(official.connectionId, 'removed')
+      toast.success(`${official.displayName} removed from roster`)
+    } catch { toast.error('Failed to remove official') }
+    finally { setRemoving(null) }
+  }
+
   const handleWithdraw = async (connId, name) => {
     if (!window.confirm(`Withdraw invitation to ${name}?`)) return
     setWithdrawing(connId)
@@ -131,7 +143,7 @@ export default function SchedRoster() {
                 <div className={styles.rosterHeader}>
                   <span>Official</span><span>Roles</span><span>Cert</span><span>Games</span><span>Status</span><span></span>
                 </div>
-                {filtered.map(o => <OfficialRow key={o.id ?? o.uid} official={o} />)}
+                {filtered.map(o => <OfficialRow key={o.id ?? o.uid} official={o} onRemove={() => handleRemove(o)} removing={removing === o.connectionId} />)}
               </div>
             </Card>
           )}
@@ -223,7 +235,7 @@ export default function SchedRoster() {
 }
 
 // ── Official row ──────────────────────────────────────────────────────────────
-function OfficialRow({ official }) {
+function OfficialRow({ official, onRemove, removing }) {
   const subRoles  = official.subRoles ?? []
   const certLevel = official.officialProfile?.certLevel ?? '—'
   const games     = official.officialProfile?.totalGames ?? 0
@@ -256,6 +268,7 @@ function OfficialRow({ official }) {
         <div className={styles.rowActions}>
           <Button size="sm" variant="ghost" title="View availability">📅</Button>
           <Button size="sm" variant="ghost" title="Message">💬</Button>
+          <Button size="sm" variant="danger" loading={removing} onClick={onRemove} title="Remove from roster">✕</Button>
         </div>
       </div>
     </div>
