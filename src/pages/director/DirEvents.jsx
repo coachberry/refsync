@@ -46,6 +46,7 @@ export default function DirEvents() {
   const [showAddGames, setShowAddGames]       = useState(false)
   const [showNotify, setShowNotify]           = useState(false)
   const [showQuotes, setShowQuotes]           = useState(false)
+  const [showGames, setShowGames]             = useState(false)
   const [showEditGroup, setShowEditGroup]     = useState(false)
   const [selectedGroup, setSelectedGroup]     = useState(null)
 
@@ -111,6 +112,7 @@ export default function DirEvents() {
               onAddGames={() => { setSelectedGroup(group); setShowAddGames(true) }}
               onNotify={() => { setSelectedGroup(group); setShowNotify(true) }}
               onViewQuotes={() => { setSelectedGroup(group); setShowQuotes(true) }}
+              onViewGames={() => { setSelectedGroup(group); setShowGames(true) }}
               onEdit={() => { setSelectedGroup(group); setShowEditGroup(true) }}
               onDelete={() => handleDelete(group)} />
           ))}
@@ -122,12 +124,13 @@ export default function DirEvents() {
       {selectedGroup && <AddGamesModal open={showAddGames} onClose={() => { setShowAddGames(false); setSelectedGroup(null) }} group={selectedGroup} />}
       {selectedGroup && <NotifySchedulersModal open={showNotify} onClose={() => { setShowNotify(false); setSelectedGroup(null) }} group={selectedGroup} userId={user?.uid} userName={profile?.displayName} connectedSchedulers={connectedSchedulers} />}
       {selectedGroup && <QuotesModal open={showQuotes} onClose={() => { setShowQuotes(false); setSelectedGroup(null) }} group={selectedGroup} directorUid={user?.uid} />}
+      {selectedGroup && <ViewGamesModal open={showGames} onClose={() => { setShowGames(false); setSelectedGroup(null) }} group={selectedGroup} />}
     </div>
   )
 }
 
 // ── Group Card ────────────────────────────────────────────────────────────────
-function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onEdit, onDelete }) {
+function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onViewGames, onEdit, onDelete }) {
   const hasGames = (group.totalGames ?? 0) > 0
   const fillPct  = hasGames ? Math.round((group.filledGames / group.totalGames) * 100) : 0
   const needsType = group.officialsNeeded ?? 'both'
@@ -207,7 +210,7 @@ function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onEdit, onDelete
         <Button size="sm" variant="secondary" onClick={onAddGames}>+ Add Games</Button>
         <Button size="sm" variant="primary"   onClick={onNotify}>📢 Notify Schedulers</Button>
         <Button size="sm" variant="teal"      onClick={onViewQuotes}>💬 View Quotes</Button>
-        <Button size="sm" variant="ghost">View Games</Button>
+        <Button size="sm" variant="ghost" onClick={onViewGames}>View Games</Button>
         <Button size="sm" variant="ghost" onClick={onEdit}>Edit</Button>
         <Button size="sm" variant="danger" onClick={onDelete}>Delete</Button>
       </div>
@@ -1141,6 +1144,101 @@ function QuotesModal({ open, onClose, group, directorUid }) {
               </div>
             )
           })}
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ── View Games Modal ──────────────────────────────────────────────────────────
+function ViewGamesModal({ open, onClose, group }) {
+  const [games, setGames]     = useState([])
+  const [loading, setLoading] = useState(true)
+  const [sortField, setSortField] = useState('gameDate')
+
+  useEffect(() => {
+    if (!open || !group?.id) return
+    setLoading(true)
+    import('firebase/firestore').then(({ getDocs, query, collection, where }) =>
+      getDocs(query(collection(db, 'games'), where('groupId', '==', group.id)))
+    ).then(snap => {
+      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      data.sort((a, b) => {
+        const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
+        const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
+        return da - db_
+      })
+      setGames(data)
+      setLoading(false)
+    }).catch(() => setLoading(false))
+  }, [open, group?.id])
+
+  const open_   = games.filter(g => g.status === 'open').length
+  const filled  = games.filter(g => g.status !== 'open').length
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Games — ${group?.name ?? ''}`} size="lg"
+      footer={
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
+          <span style={{ fontSize: 12.5, color: 'var(--color-muted)' }}>
+            {games.length} games · {open_} open · {filled} filled
+          </span>
+          <div style={{ flex: 1 }} />
+          <Button variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      }
+    >
+      {loading ? (
+        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
+          <Spinner size="lg" />
+        </div>
+      ) : games.length === 0 ? (
+        <EmptyState icon="🏒" title="No games added yet"
+          message="Use the + Add Games button on the event card to add games." />
+      ) : (
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }}>
+                {['Date', 'Time', 'Home Team', 'Away Team', 'Venue', 'Division', 'Duration', 'Refs', 'Lines', 'SKs', 'Status'].map(h => (
+                  <th key={h} style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
+                    {h}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {games.map(g => {
+                const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
+                const statusColors = { open: '#dc2626', assigned: '#2563eb', completed: '#16a34a' }
+                return (
+                  <tr key={g.id} style={{ borderBottom: '1px solid var(--color-border)' }}
+                    onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-2)'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
+                    <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 600 }}>{format(gd, 'MMM d, yyyy')}</td>
+                    <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', color: 'var(--color-muted)' }}>{format(gd, 'h:mm a')}</td>
+                    <td style={{ padding: '9px 10px', fontWeight: 600 }}>{g.homeTeam}</td>
+                    <td style={{ padding: '9px 10px', fontWeight: 600 }}>{g.awayTeam}</td>
+                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)' }}>{g.venue || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)' }}>{g.division || '—'}</td>
+                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)', textAlign: 'center' }}>{g.duration ? `${g.duration}hr` : '—'}</td>
+                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.refs ?? '—'}</td>
+                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.linesmen ?? '—'}</td>
+                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.scorekeepers ?? '—'}</td>
+                    <td style={{ padding: '9px 10px' }}>
+                      <span style={{
+                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
+                        background: `${statusColors[g.status] ?? '#6b7280'}18`,
+                        color: statusColors[g.status] ?? '#6b7280',
+                        textTransform: 'capitalize',
+                      }}>{g.status}</span>
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
         </div>
       )}
     </Modal>
