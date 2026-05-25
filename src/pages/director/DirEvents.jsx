@@ -495,14 +495,19 @@ function AddGamesModal({ open, onClose, group }) {
 
           if (!homeTeam || !awayTeam) { errors.push(`Row ${i + 2}: missing home or away team`); return }
 
-          // Convert MM-DD-YYYY → YYYY-MM-DD for date input
-          let gameDate = rawDate
-          const mmddyyyy = rawDate.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/)
-          const yyyymmdd = rawDate.match(/^\d{4}-\d{2}-\d{2}$/)
-          if (mmddyyyy) {
-            gameDate = `${mmddyyyy[3]}-${mmddyyyy[1].padStart(2,'0')}-${mmddyyyy[2].padStart(2,'0')}`
-          } else if (!yyyymmdd) {
-            errors.push(`Row ${i + 2}: date must be MM-DD-YYYY (got "${rawDate}")`); return
+          // Parse date — accept M-D-YY, M-D-YYYY, MM-DD-YYYY, YYYY-MM-DD
+          let gameDate = rawDate.trim()
+          const yyyymmdd = gameDate.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/)
+          const mdyy     = gameDate.match(/^(\d{1,2})-(\d{1,2})-(\d{2,4})$/)
+          if (yyyymmdd) {
+            // Already YYYY-MM-DD — just pad
+            gameDate = `${yyyymmdd[1]}-${yyyymmdd[2].padStart(2,'0')}-${yyyymmdd[3].padStart(2,'0')}`
+          } else if (mdyy) {
+            const [, m, d, y] = mdyy
+            const year = y.length === 2 ? `20${y}` : y
+            gameDate = `${year}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`
+          } else {
+            errors.push(`Row ${i + 2}: unrecognized date format "${rawDate}" — use MM-DD-YYYY`); return
           }
 
           const defaultCrew = DEFAULT_CREW[group?.officialsNeeded ?? 'both']
