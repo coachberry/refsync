@@ -579,23 +579,22 @@ function AddGamesModal({ open, onClose, group }) {
       await Promise.all(valid.map(g => createGame({
         ...g,
         duration: getDur(g),
-        groupId: group.id, groupName: group.name,
-        directorId: group.directorId,
-        schedulerId: group.schedulerId ?? group.refSchedulerId ?? null,
+        groupId:   group.id,
+        groupName: group.name,
+        directorId:   group.directorId ?? group.createdBy ?? null,
+        schedulerId:  group.schedulerId ?? group.refSchedulerId ?? null,
         skSchedulerId: group.skSchedulerId ?? null,
         sport: group.sport ?? 'Ice Hockey',
         officialsNeeded: group.officialsNeeded ?? 'both',
-        // Crew slots
-        refs: needsRef ? (g.refs ?? 2) : 0,
-        linesmen: needsRef ? (g.linesmen ?? 2) : 0,
-        scorekeepers: needsSK ? (g.scorekeepers ?? 1) : 0,
+        refs:         needsRef ? (Number(g.refs)         ?? 2) : 0,
+        linesmen:     needsRef ? (Number(g.linesmen)     ?? 2) : 0,
+        scorekeepers: needsSK  ? (Number(g.scorekeepers) ?? 1) : 0,
         gameDate: new Date(`${g.gameDate}T${g.gameTime || '12:00'}`),
         venue: g.venue || group.venues?.[0] || '',
-        // Pay rates per type
-        refPayRate: needsRef ? refRate.hourlyRate * getDur(g) : 0,
-        skPayRate:  needsSK  ? skRate.hourlyRate  * getDur(g) : 0,
-        payRate:    needsSK  ? skRate.hourlyRate  * getDur(g) : refRate.hourlyRate * getDur(g),
-        assignedOfficials: [], assignedUids: [], requests: [], status: 'open',
+        assignedOfficials: [],
+        assignedUids:      [],
+        requests:          [],
+        status: 'open',
       })))
       await updateGameGroup(group.id, {
         totalGames: (group.totalGames ?? 0) + valid.length,
@@ -604,8 +603,10 @@ function AddGamesModal({ open, onClose, group }) {
       })
       toast.success(`${valid.length} game${valid.length > 1 ? 's' : ''} added!`)
       setGames([emptyGame(group)]); onClose()
-    } catch { toast.error('Failed to add games') }
-    finally { setSaving(false) }
+    } catch (err) {
+      console.error('Failed to add games:', err)
+      toast.error(`Failed to add games: ${err.message ?? err}`)
+    } finally { setSaving(false) }
   }
 
   const venues    = group?.venues    ?? []
