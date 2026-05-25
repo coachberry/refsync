@@ -1012,22 +1012,34 @@ const inviteInputSt = {
 
 // ── Quotes Modal ──────────────────────────────────────────────────────────────
 function QuotesModal({ open, onClose, group, directorUid }) {
-  const [rfqs, setRfqs]     = useState([])
+  const [rfqs, setRfqs]       = useState([])
   const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState('')
   const [accepting, setAccepting] = useState(null)
   const [declining, setDeclining] = useState(null)
 
   useEffect(() => {
     if (!open || !group?.id || !directorUid) return
     setLoading(true)
-    // Query by directorUid — satisfies security rules (directorUid == request.auth.uid)
-    const unsub = subscribeRFQsForDirector(directorUid, (data) => {
-      // Filter client-side to this group
-      const forGroup = data.filter(r => r.groupId === group.id)
+    setError('')
+    setRfqs([])
+
+    // Use getDocs (one-time fetch) — more reliable with security rules
+    import('firebase/firestore').then(({ getDocs, query, collection, where }) =>
+      getDocs(query(
+        collection(db, 'rfqs'),
+        where('directorUid', '==', directorUid)
+      ))
+    ).then(snap => {
+      const all = snap.docs.map(d => ({ id: d.id, ...d.data() }))
+      const forGroup = all.filter(r => r.groupId === group.id)
       setRfqs(forGroup)
       setLoading(false)
+    }).catch(err => {
+      console.error('QuotesModal error:', err)
+      setError(err.message ?? 'Failed to load quotes')
+      setLoading(false)
     })
-    return unsub
   }, [open, group?.id, directorUid])
 
   const handleAccept = async (rfq) => {
@@ -1091,6 +1103,8 @@ function QuotesModal({ open, onClose, group, directorUid }) {
     >
       {loading ? (
         <div className={styles.center}><Spinner /></div>
+      ) : error ? (
+        <div style={{ padding: 20, color: 'var(--red)', fontSize: 13 }}>⚠️ {error}</div>
       ) : rfqs.length === 0 ? (
         <EmptyState icon="💬" title="No quotes yet" message="Schedulers you notified will submit their quote here. You'll see a notification when one arrives." />
       ) : (
