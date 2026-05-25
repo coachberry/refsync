@@ -287,7 +287,7 @@ function RFQCard({ rfq, onQuote, onReject, rejecting }) {
       )}
 
       {rfq.status === 'accepted' && (
-        <div className={styles.rfqAcceptedNotice}>✅ Your quote was accepted! Invoice created for the director.</div>
+        <div className={styles.rfqAcceptedNotice}>✅ Your quote was accepted! Go to <strong>Finance → Create Invoice</strong> to bill the director and receive payment.</div>
       )}
       {rfq.status === 'not_selected' && (
         <div className={styles.rfqNotSelected}>Another scheduler was selected for this event.</div>
