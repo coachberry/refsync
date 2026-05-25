@@ -407,6 +407,9 @@ export const sendRFQ = async (groupId, groupData, schedulerUids, directorUid, di
   })
 
   await batch.commit()
+
+  // Mark group as having sent RFQs so status updates
+  await updateDoc(doc(db, 'gameGroups', groupId), { rfqSent: true })
 }
 
 export const sendRFQByEmail = async (groupId, groupData, email, directorUid, directorName) => {

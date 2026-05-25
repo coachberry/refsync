@@ -223,3 +223,36 @@
   font-size: 12px; font-weight: 700; text-transform: uppercase;
   letter-spacing: .6px; color: var(--color-muted); margin-bottom: 10px;
 }
+
+/* Status column */
+.statusColumn { display: flex; flex-direction: column; align-items: flex-end; gap: 6px; flex-shrink: 0; }
+.statusBadge {
+  display: flex; align-items: center; gap: 6px;
+  padding: 5px 12px; border-radius: 20px; border: 1px solid;
+  font-size: 12px; font-weight: 700; white-space: nowrap;
+}
+.gameCount { font-size: 11px; color: var(--color-muted); text-align: right; }
+
+/* Status pipeline */
+.statusPipeline {
+  display: flex; align-items: center;
+  padding: 10px 0 2px; gap: 0;
+  overflow-x: auto;
+}
+.pipelineStep { display: flex; align-items: center; flex: 1; min-width: 0; }
+.pipelineDot {
+  width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+  border: 2px solid var(--color-border); background: var(--color-surface-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; color: var(--color-muted); transition: all .2s;
+}
+.pipelineDone    { background: var(--teal); border-color: var(--teal); color: #fff; font-weight: 700; font-size: 11px; }
+.pipelineCurrent { background: var(--blue); border-color: var(--blue); color: #fff; font-size: 13px; box-shadow: 0 0 0 3px rgba(37,99,235,.2); }
+.pipelineLine    { flex: 1; height: 2px; background: var(--color-border); min-width: 8px; }
+.pipelineLineDone { background: var(--teal); }
+
+/* Status description */
+.statusDesc {
+  font-size: 12.5px; color: var(--color-text-2); padding: 4px 0 8px;
+  border-bottom: 1px solid var(--color-border); line-height: 1.5;
+}

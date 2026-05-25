@@ -372,6 +372,11 @@ function SubmitQuoteModal({ open, onClose, rfq, schedulerUid, schedulerName }) {
           : null,
         quotedAt: new Date().toISOString(),
       })
+      // Mark the group as having quotes received
+      const { updateDoc: ud, doc: fd } = await import('firebase/firestore').then(m => m)
+      if (rfq.groupId) {
+        await ud(fd(db, 'gameGroups', rfq.groupId), { hasQuotes: true })
+      }
       await addDoc(collection(db, 'notifications'), {
         uid:       rfq.directorUid,
         type:      'rfq',

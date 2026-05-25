@@ -376,6 +376,11 @@ function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName,
         status:       'sent',
         createdAt:    serverTimestamp(),
       })
+      // Mark group as having an unpaid invoice
+      const groupId = form.groupId || prefillRfq?.groupId
+      if (groupId) {
+        await updateDoc(doc(db, 'gameGroups', groupId), { hasUnpaidInvoice: true })
+      }
       // Notify the director that the invoice is ready
       if (form.directorId) {
         await addDoc(collection(db, 'notifications'), {

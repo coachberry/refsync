@@ -129,11 +129,37 @@ export default function DirEvents() {
   )
 }
 
+// ── Event status pipeline ─────────────────────────────────────────────────────
+const EVENT_STATUSES = {
+  draft:           { label: 'Draft',            icon: '📝', color: '#6b7280', variant: 'gray',  desc: 'Event created — add games to get started' },
+  open:            { label: 'Games Added',       icon: '🏒', color: '#2563eb', variant: 'blue',  desc: 'Games added — notify schedulers to get quotes' },
+  pending_quotes:  { label: 'Awaiting Quotes',   icon: '📬', color: '#d97706', variant: 'amber', desc: 'Schedulers notified — waiting for their quotes' },
+  quotes_received: { label: 'Quotes Received',   icon: '💬', color: '#7c3aed', variant: 'blue',  desc: 'Quotes in — review and accept one to proceed' },
+  scheduled:       { label: 'Scheduled',         icon: '✅', color: '#059669', variant: 'green', desc: 'Quote accepted — waiting for invoice from scheduler' },
+  invoice_pending: { label: 'Invoice Pending',   icon: '🧾', color: '#dc2626', variant: 'red',   desc: 'Invoice received — go to Invoices to pay' },
+  active:          { label: 'Active',            icon: '🟢', color: '#059669', variant: 'green', desc: 'Paid — officials are being scheduled for games' },
+  completed:       { label: 'Completed',         icon: '🏆', color: '#6b7280', variant: 'gray',  desc: 'All games completed' },
+}
+
+// Derive the current event status from its data
+function deriveEventStatus(group) {
+  if (group.status === 'completed') return 'completed'
+  if (group.status === 'active' || group.invoicePaid) return 'active'
+  if (group.hasUnpaidInvoice) return 'invoice_pending'
+  if (group.quoteAccepted) return 'scheduled'
+  if (group.hasQuotes) return 'quotes_received'
+  if (group.rfqSent) return 'pending_quotes'
+  if ((group.totalGames ?? 0) > 0) return 'open'
+  return 'draft'
+}
+
 // ── Group Card ────────────────────────────────────────────────────────────────
 function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onViewGames, onEdit, onDelete }) {
-  const hasGames = (group.totalGames ?? 0) > 0
-  const fillPct  = hasGames ? Math.round((group.filledGames / group.totalGames) * 100) : 0
-  const needsType = group.officialsNeeded ?? 'both'
+  const hasGames   = (group.totalGames ?? 0) > 0
+  const fillPct    = hasGames ? Math.round(((group.filledGames ?? 0) / group.totalGames) * 100) : 0
+  const needsType  = group.officialsNeeded ?? 'both'
+  const statusKey  = deriveEventStatus(group)
+  const statusMeta = EVENT_STATUSES[statusKey] ?? EVENT_STATUSES.draft
 
   const officialsLabel = {
     both:         '🏒📋 Referees & Scorekeepers',
@@ -142,27 +168,11 @@ function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onViewGames, onE
   }[needsType] ?? '—'
 
   const divisionLabels = group.divisions?.map(d => d.label).join(', ') ?? '—'
-  const venueLabels    = group.venues?.join(', ') ?? '—'
-
-  const totalHours  = group.totalHours ?? 0
-  const totalGames  = group.totalGames ?? 0
-  const refRate     = group.refInvoiceRate ?? group.invoiceRate ?? null
-  const skRate      = group.skInvoiceRate  ?? null
-
-  // Show estimated invoice per type
-  const refEst = refRate && totalHours > 0
-    ? `Ref invoice est: $${(refRate.hourlyRate * totalHours + refRate.perGameFee * totalGames).toFixed(2)}`
-    : null
-  const skEst = skRate && totalHours > 0
-    ? `SK invoice est: $${(skRate.hourlyRate * totalHours + skRate.perGameFee * totalGames).toFixed(2)}`
-    : null
-
-  // Scheduler assignment status
-  const hasRefSched = !!group.refSchedulerId || !!group.schedulerId
-  const hasSKSched  = !!group.skSchedulerId
+  const venueLabels    = group.venues?.slice(0, 2).join(', ') ?? '—'
 
   return (
     <div className={styles.groupCard}>
+      {/* Header */}
       <div className={styles.groupCardHeader}>
         <div className={styles.groupCardLeft}>
           <div className={styles.groupName}>{group.name}</div>
@@ -175,44 +185,68 @@ function GroupCard({ group, onAddGames, onNotify, onViewQuotes, onViewGames, onE
           </div>
           <div className={styles.groupInfo}>
             <span className={styles.infoRow}>🎯 {divisionLabels}</span>
-            <span className={styles.infoRow}>📍 {venueLabels}</span>
+            <span className={styles.infoRow}>📍 {venueLabels}{(group.venues?.length ?? 0) > 2 ? ` +${group.venues.length - 2} more` : ''}</span>
             {group.budget && <span className={styles.infoRow}>💰 Budget: <strong>${Number(group.budget).toLocaleString()}</strong></span>}
           </div>
         </div>
-        <Badge variant={statusBadge(group.status ?? 'draft')}>{group.status ?? 'draft'}</Badge>
+
+        {/* Status badge */}
+        <div className={styles.statusColumn}>
+          <div className={styles.statusBadge} style={{ background: `${statusMeta.color}15`, color: statusMeta.color, borderColor: `${statusMeta.color}30` }}>
+            <span>{statusMeta.icon}</span>
+            <span>{statusMeta.label}</span>
+          </div>
+          {hasGames && (
+            <div className={styles.gameCount}>{group.totalGames} games</div>
+          )}
+        </div>
       </div>
 
-      {hasGames && (
+      {/* Status progress pipeline */}
+      <div className={styles.statusPipeline}>
+        {Object.entries(EVENT_STATUSES).map(([key, meta], i, arr) => {
+          const isDone    = Object.keys(EVENT_STATUSES).indexOf(key) < Object.keys(EVENT_STATUSES).indexOf(statusKey)
+          const isCurrent = key === statusKey
+          return (
+            <div key={key} className={styles.pipelineStep}>
+              <div className={[
+                styles.pipelineDot,
+                isDone    ? styles.pipelineDone    : '',
+                isCurrent ? styles.pipelineCurrent : '',
+              ].join(' ')} title={meta.label}>
+                {isDone ? '✓' : isCurrent ? meta.icon : ''}
+              </div>
+              {i < arr.length - 1 && <div className={[styles.pipelineLine, isDone ? styles.pipelineLineDone : ''].join(' ')} />}
+            </div>
+          )
+        })}
+      </div>
+
+      {/* Current status description */}
+      <div className={styles.statusDesc}>
+        <span style={{ color: statusMeta.color, fontWeight: 600 }}>{statusMeta.icon} {statusMeta.label}:</span>
+        {' '}{statusMeta.desc}
+      </div>
+
+      {/* Fill progress bar — only show when active */}
+      {hasGames && (statusKey === 'active' || statusKey === 'completed') && (
         <div className={styles.fillRow}>
           <div className={styles.fillMeta}>
-            <span>{group.filledGames ?? 0} / {group.totalGames} games filled</span>
+            <span>{group.filledGames ?? 0} / {group.totalGames} positions filled</span>
             <span className={styles.fillPct}>{fillPct}%</span>
           </div>
           <div className={styles.fillBar}><div className={styles.fillProgress} style={{ width: `${fillPct}%` }} /></div>
         </div>
       )}
 
-      {/* Scheduler status per type */}
-      <div className={styles.schedulerStatus}>
-        {(needsType === 'referees' || needsType === 'both') && (
-          <div className={hasRefSched ? styles.schedAssigned : styles.schedNone}>
-            {hasRefSched ? `🏒 Ref Scheduler: ${group.schedulerName ?? group.refSchedulerName ?? 'Assigned'}` : '🏒 No referee scheduler assigned'}
-          </div>
-        )}
-        {(needsType === 'scorekeepers' || needsType === 'both') && (
-          <div className={hasSKSched ? styles.schedAssigned : styles.schedNone}>
-            {hasSKSched ? `📋 SK Scheduler: ${group.skSchedulerName ?? 'Assigned'}` : '📋 No scorekeeper scheduler assigned'}
-          </div>
-        )}
-      </div>
-
+      {/* Actions */}
       <div className={styles.groupActions}>
         <Button size="sm" variant="secondary" onClick={onAddGames}>+ Add Games</Button>
         <Button size="sm" variant="primary"   onClick={onNotify}>📢 Notify Schedulers</Button>
         <Button size="sm" variant="teal"      onClick={onViewQuotes}>💬 View Quotes</Button>
-        <Button size="sm" variant="ghost" onClick={onViewGames}>View Games</Button>
-        <Button size="sm" variant="ghost" onClick={onEdit}>Edit</Button>
-        <Button size="sm" variant="danger" onClick={onDelete}>Delete</Button>
+        <Button size="sm" variant="ghost"     onClick={onViewGames}>View Games</Button>
+        <Button size="sm" variant="ghost"     onClick={onEdit}>Edit</Button>
+        <Button size="sm" variant="danger"    onClick={onDelete}>Delete</Button>
       </div>
     </div>
   )
@@ -1053,6 +1087,11 @@ function QuotesModal({ open, onClose, group, directorUid }) {
           updateDoc(fdoc(db, 'rfqs', rfq.id), {
             status:     'accepted',
             acceptedAt: new Date().toISOString(),
+          }),
+          // Mark group as having an accepted quote
+          updateDoc(fdoc(db, 'gameGroups', group.id), {
+            quoteAccepted: true,
+            rfqSent: true,
           }),
           // Notify the scheduler their quote was accepted
           addDoc(collection(db, 'notifications'), {
