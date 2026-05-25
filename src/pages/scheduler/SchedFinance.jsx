@@ -405,14 +405,25 @@ function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName,
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSave}>Send Invoice</Button></>}
     >
       <Input label="Invoice Number" value={form.invoiceNumber} onChange={e => set('invoiceNumber', e.target.value)} />
-      <Select label="Game Group (optional)" value={form.groupId} onChange={e => {
-        const g = groups.find(x => x.id === e.target.value)
-        set('groupId', e.target.value)
-        if (g?.directorName) set('directorName', g.directorName)
-      }}>
-        <option value="">Select a group…</option>
-        {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
-      </Select>
+
+      {/* If pre-filling from an RFQ, show event info as read-only */}
+      {prefillRfq ? (
+        <div style={{ background: 'var(--color-surface-2)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--color-muted)', marginBottom: 8 }}>Event</div>
+          <div style={{ fontSize: 14, fontWeight: 600 }}>{prefillRfq.groupName}</div>
+          <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 2 }}>Director: {prefillRfq.directorName}</div>
+        </div>
+      ) : (
+        <Select label="Game Group (optional)" value={form.groupId} onChange={e => {
+          const g = groups.find(x => x.id === e.target.value)
+          set('groupId', e.target.value)
+          if (g?.directorName) set('directorName', g.directorName)
+        }}>
+          <option value="">Select a group…</option>
+          {groups.map(g => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </Select>
+      )}
+
       <Input label="Director Name *" value={form.directorName} onChange={e => set('directorName', e.target.value)} placeholder="Lisa Ortega" />
       <FormRow>
         <Input label="Amount ($) *" type="number" placeholder="0.00" value={form.amount} onChange={e => set('amount', e.target.value)} />
