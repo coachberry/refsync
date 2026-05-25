@@ -217,51 +217,34 @@ function InviteSchedulerModal({ open, onClose, groups, userId, userName, userEma
     setSearched(false)
     setSelectedUser(null)
     try {
-      // Search by display name or email
       const term = searchQuery.trim().toLowerCase()
-      const [byName, byEmail] = await Promise.all([
-        getDocs(query(
-          collection(db, 'users'),
-          where('roles', 'array-contains', 'scheduler'),
-          where('displayNameLower', '>=', term),
-          where('displayNameLower', '<=', term + '\uf8ff'),
-          limit(10)
-        )),
-        getDocs(query(
-          collection(db, 'users'),
-          where('roles', 'array-contains', 'scheduler'),
-          where('email', '>=', term),
-          where('email', '<=', term + '\uf8ff'),
-          limit(10)
-        )),
-      ])
-      const seen = new Set()
-      const results = []
-      ;[...byName.docs, ...byEmail.docs].forEach(d => {
-        if (!seen.has(d.id) && d.id !== userId) {
-          seen.add(d.id)
-          results.push({ id: d.id, ...d.data() })
-        }
-      })
+
+      // Fetch all schedulers and filter client-side
+      // (avoids needing composite Firestore indexes on displayNameLower)
+      const snap = await getDocs(query(
+        collection(db, 'users'),
+        where('roles', 'array-contains', 'scheduler'),
+        limit(200)
+      ))
+
+      const results = snap.docs
+        .filter(d => {
+          if (d.id === userId) return false
+          const data = d.data()
+          const nameMatch  = data.displayName?.toLowerCase().includes(term)
+          const emailMatch = data.email?.toLowerCase().includes(term)
+          return nameMatch || emailMatch
+        })
+        .map(d => ({ id: d.id, ...d.data() }))
+
       setSearchResults(results)
       setSearched(true)
     } catch (err) {
       console.error(err)
-      // Fallback: search by email only (doesn't need composite index)
-      try {
-        const snap = await getDocs(query(
-          collection(db, 'users'),
-          where('email', '==', searchQuery.trim().toLowerCase()),
-          limit(5)
-        ))
-        const results = snap.docs
-          .filter(d => d.id !== userId && (d.data().roles ?? []).includes('scheduler'))
-          .map(d => ({ id: d.id, ...d.data() }))
-        setSearchResults(results)
-        setSearched(true)
-      } catch { toast.error('Search failed — try searching by exact email') }
+      toast.error('Search failed — try searching by exact email')
     } finally {
-      setSearching(false) }
+      setSearching(false)
+    }
   }
 
   const handleSendToUser = async () => {

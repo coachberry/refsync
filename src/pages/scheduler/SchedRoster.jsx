@@ -5,7 +5,7 @@ import { useRoster } from '@/hooks/useRoster'
 import { useConnections } from '@/hooks/useConnections'
 import { db } from '@/lib/firebase'
 import { collection, query, where, getDocs, limit } from 'firebase/firestore'
-import { sendConnectionRequest, respondToConnection, searchUsers } from '@/services/firestore'
+import { sendConnectionRequest, respondToConnection } from '@/services/firestore'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
 import { Input } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
@@ -289,7 +289,18 @@ function InviteModal({ open, onClose, schedulerId, schedulerName, alreadyConnect
     if (!searchTerm.trim()) return
     setSearching(true)
     try {
-      const users = await searchUsers('official', searchTerm)
+      const term = searchTerm.trim().toLowerCase()
+      const snap = await getDocs(query(
+        collection(db, 'users'),
+        where('roles', 'array-contains', 'official'),
+        limit(200)
+      ))
+      const users = snap.docs
+        .filter(d => {
+          const data = d.data()
+          return data.displayName?.toLowerCase().includes(term) || data.email?.toLowerCase().includes(term)
+        })
+        .map(d => ({ id: d.id, ...d.data() }))
       setResults(users)
     } catch { toast.error('Search failed') }
     finally { setSearching(false) }

@@ -125,21 +125,18 @@ function FindDirectorModal({ open, onClose, schedulerUid, schedulerName }) {
       const snap = await getDocs(query(
         collection(db, 'users'),
         where('roles', 'array-contains', 'director'),
-        where('email', '>=', term),
-        where('email', '<=', term + '\uf8ff'),
-        limit(10)
+        limit(200)
       ))
       const found = snap.docs
-        .filter(d => d.id !== schedulerUid)
+        .filter(d => {
+          if (d.id === schedulerUid) return false
+          const data = d.data()
+          return data.displayName?.toLowerCase().includes(term) || data.email?.toLowerCase().includes(term)
+        })
         .map(d => ({ id: d.id, ...d.data() }))
       setResults(found); setSearched(true)
     } catch {
-      // Fallback: exact email match
-      try {
-        const snap = await getDocs(query(collection(db, 'users'), where('email', '==', searchQuery.trim().toLowerCase())))
-        const found = snap.docs.filter(d => d.id !== schedulerUid && (d.data().roles ?? []).includes('director')).map(d => ({ id: d.id, ...d.data() }))
-        setResults(found); setSearched(true)
-      } catch { }
+      setSearched(true)
     } finally { setSearching(false) }
   }
 
