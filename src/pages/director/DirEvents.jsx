@@ -1043,35 +1043,47 @@ function QuotesModal({ open, onClose, group, directorUid }) {
   }, [open, group?.id, directorUid])
 
   const handleAccept = async (rfq) => {
-    if (!window.confirm(`Accept ${rfq.schedulerName ?? 'this scheduler'}'s quote for $${rfq.quoteAmount?.toFixed(2)}?`)) return
+    if (!window.confirm(`Accept ${rfq.schedulerName ?? 'this scheduler'}'s quote for $${rfq.quoteAmount?.toFixed(2)}?\n\nThey will be notified and can send you an invoice to pay.`)) return
     setAccepting(rfq.id)
     try {
       // Mark RFQ accepted
-      await updateRFQ(rfq.id, {
-        status: 'accepted',
-        acceptedAt: new Date().toISOString(),
-      })
-      // Auto-create invoice
-      const { addDoc, collection, serverTimestamp } = await import('firebase/firestore')
-      await addDoc(collection(db, 'invoices'), {
-        schedulerId:   rfq.schedulerUid,
-        schedulerName: rfq.schedulerName,
-        directorId:    directorUid,
-        directorName:  rfq.directorName,
-        groupId:       group.id,
-        groupName:     group.name,
-        amount:        rfq.quoteAmount,
-        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
-        status:        'sent',
-        rfqId:         rfq.id,
-        notes:         rfq.quoteNote ?? '',
-        createdAt:     serverTimestamp(),
-      })
-      // Notify other schedulers their quote was not selected
+      await import('firebase/firestore').then(({ updateDoc, doc: fdoc, addDoc, collection, serverTimestamp }) =>
+        Promise.all([
+          // Update RFQ status
+          updateDoc(fdoc(db, 'rfqs', rfq.id), {
+            status:     'accepted',
+            acceptedAt: new Date().toISOString(),
+          }),
+          // Notify the scheduler their quote was accepted
+          addDoc(collection(db, 'notifications'), {
+            uid:       rfq.schedulerUid,
+            type:      'rfq',
+            title:     '✅ Quote Accepted!',
+            message:   `${rfq.directorName ?? 'The director'} accepted your quote of $${rfq.quoteAmount?.toFixed(2)} for "${rfq.groupName}". Please send them an invoice to receive payment.`,
+            read:      false,
+            link:      '/scheduler/finance',
+            groupId:   rfq.groupId,
+            rfqId:     rfq.id,
+            createdAt: serverTimestamp(),
+          }),
+        ])
+      )
+      // Mark other quotes for same group as not selected
       const others = rfqs.filter(r => r.id !== rfq.id && r.status === 'quoted')
-      await Promise.all(others.map(r => updateRFQ(r.id, { status: 'not_selected' })))
-      toast.success('Quote accepted! Invoice created — go to Invoices to pay.')
-      onClose()
+      if (others.length > 0) {
+        await Promise.all(others.map(r =>
+          import('firebase/firestore').then(({ updateDoc, doc: fdoc }) =>
+            updateDoc(fdoc(db, 'rfqs', r.id), { status: 'not_selected' })
+          )
+        ))
+      }
+      toast.success(`Quote accepted! ${rfq.schedulerName ?? 'The scheduler'} has been notified and will send you an invoice.`)
+      // Refresh quotes
+      setRfqs(prev => prev.map(r =>
+        r.id === rfq.id ? { ...r, status: 'accepted' }
+        : others.find(o => o.id === r.id) ? { ...r, status: 'not_selected' }
+        : r
+      ))
     } catch (err) {
       toast.error('Failed to accept quote')
       console.error(err)
@@ -1134,7 +1146,7 @@ function QuotesModal({ open, onClose, group, directorUid }) {
                     )}
                     <div className={styles.quoteActions}>
                       <Button variant="primary" size="sm" loading={accepting === rfq.id} onClick={() => handleAccept(rfq)}>
-                        ✓ Accept & Create Invoice
+                        ✓ Accept
                       </Button>
                       <Button variant="ghost" size="sm" loading={declining === rfq.id} onClick={() => handleDecline(rfq)}>
                         ✗ Decline
@@ -1147,7 +1159,7 @@ function QuotesModal({ open, onClose, group, directorUid }) {
                   <div className={styles.quotePending}>Waiting for scheduler to submit their quote…</div>
                 )}
                 {rfq.status === 'accepted' && (
-                  <div className={styles.quoteAccepted}>✅ Accepted · Invoice created · Go to Invoices to pay</div>
+                  <div className={styles.quoteAccepted}>✅ Accepted — waiting for scheduler to send invoice</div>
                 )}
                 {rfq.status === 'declined' && (
                   <div className={styles.quoteDeclined}>✗ You declined this quote</div>

@@ -25,13 +25,22 @@ export default function SchedFinance() {
   const [tab, setTab]             = useState('overview')
   const [invoices, setInvoices]   = useState([])
   const [payments, setPayments]   = useState([])
+  const [acceptedRfqs, setAcceptedRfqs] = useState([])
   const [loading, setLoading]     = useState(true)
   const [showInvoice, setShowInvoice] = useState(false)
   const [showPayment, setShowPayment] = useState(false)
+  const [prefillRfq, setPrefillRfq]   = useState(null)
 
   useEffect(() => {
     if (!user) return
     fetchFinance()
+    // Load accepted RFQs that don't yet have an invoice
+    getDocs(query(collection(db, 'rfqs'),
+      where('schedulerUid', '==', user.uid),
+      where('status', '==', 'accepted')
+    )).then(snap => {
+      setAcceptedRfqs(snap.docs.map(d => ({ id: d.id, ...d.data() })))
+    }).catch(() => {})
   }, [user])
 
   const fetchFinance = async () => {
@@ -72,6 +81,26 @@ export default function SchedFinance() {
         </div>
       </div>
 
+      {/* Accepted quotes — prompt scheduler to invoice */}
+      {acceptedRfqs.filter(r => !invoices.find(i => i.rfqId === r.id)).map(rfq => (
+        <div key={rfq.id} style={{
+          background: 'rgba(0,184,153,.08)', border: '1.5px solid rgba(0,184,153,.3)',
+          borderRadius: 'var(--radius-md)', padding: '14px 18px',
+          display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
+        }}>
+          <div style={{ fontSize: 22 }}>✅</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>Quote accepted — "{rfq.groupName}"</div>
+            <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 2 }}>
+              {rfq.directorName} accepted your quote of <strong>${rfq.quoteAmount?.toFixed(2)}</strong>. Send them an invoice to receive payment.
+            </div>
+          </div>
+          <Button variant="teal" onClick={() => { setPrefillRfq(rfq); setShowInvoice(true) }}>
+            📄 Create Invoice
+          </Button>
+        </div>
+      ))}
+
       {/* Summary stats */}
       <div className={styles.statsGrid}>
         <StatCard icon="📥" label="Outstanding AR"     value={`$${totalAR.toLocaleString()}`}       color="var(--blue)"  />
@@ -101,10 +130,11 @@ export default function SchedFinance() {
 
       <CreateInvoiceModal
         open={showInvoice}
-        onClose={() => setShowInvoice(false)}
+        onClose={() => { setShowInvoice(false); setPrefillRfq(null) }}
         groups={groups}
         schedulerId={user?.uid}
         schedulerName={profile?.displayName}
+        prefillRfq={prefillRfq}
         onSaved={fetchFinance}
       />
       <PayOfficialModal
@@ -299,13 +329,31 @@ function PayrollTab({ payments, roster, onRefresh }) {
 }
 
 // ── Create Invoice Modal ──────────────────────────────────────────────────────
-function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName, onSaved }) {
+function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName, onSaved, prefillRfq }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({
-    groupId: '', directorName: '', amount: '', dueDate: '',
+    groupId: '', directorName: '', directorId: '', amount: '', dueDate: '',
     notes: '', invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
   })
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
+
+  // Pre-fill from accepted RFQ
+  useEffect(() => {
+    if (!open) return
+    if (prefillRfq) {
+      setForm({
+        groupId:      prefillRfq.groupId ?? '',
+        directorName: prefillRfq.directorName ?? '',
+        directorId:   prefillRfq.directorUid ?? '',
+        amount:       prefillRfq.quoteAmount?.toString() ?? '',
+        dueDate:      '',
+        notes:        prefillRfq.quoteBreakdown ?? '',
+        invoiceNumber: `INV-${Date.now().toString().slice(-6)}`,
+      })
+    } else {
+      setForm({ groupId: '', directorName: '', directorId: '', amount: '', dueDate: '', notes: '', invoiceNumber: `INV-${Date.now().toString().slice(-6)}` })
+    }
+  }, [open, prefillRfq])
 
   const selectedGroup = groups.find(g => g.id === form.groupId)
 
@@ -313,24 +361,37 @@ function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName,
     if (!form.amount || !form.directorName) { toast.error('Director name and amount are required'); return }
     setSaving(true)
     try {
-      await addDoc(collection(db, 'invoices'), {
+      const invoiceRef = await addDoc(collection(db, 'invoices'), {
         schedulerId,
         schedulerName,
         groupId:      form.groupId || null,
-        groupName:    selectedGroup?.name ?? '',
-        directorId:   selectedGroup?.directorId ?? null,
+        groupName:    selectedGroup?.name ?? prefillRfq?.groupName ?? '',
+        directorId:   form.directorId || selectedGroup?.directorId || null,
         directorName: form.directorName,
         amount:       Number(form.amount),
         dueDate:      form.dueDate || null,
         notes:        form.notes,
         invoiceNumber: form.invoiceNumber,
+        rfqId:        prefillRfq?.id ?? null,
         status:       'sent',
         createdAt:    serverTimestamp(),
       })
-      toast.success('Invoice created!')
+      // Notify the director that the invoice is ready
+      if (form.directorId) {
+        await addDoc(collection(db, 'notifications'), {
+          uid:       form.directorId,
+          type:      'invoice',
+          title:     '🧾 Invoice Ready to Pay',
+          message:   `${schedulerName} sent you an invoice of $${Number(form.amount).toFixed(2)} for "${selectedGroup?.name ?? prefillRfq?.groupName ?? 'your event'}"`,
+          read:      false,
+          link:      '/director/invoices',
+          createdAt: serverTimestamp(),
+        })
+      }
+      toast.success('Invoice sent to director!')
       onSaved()
       onClose()
-    } catch { toast.error('Failed to create invoice') }
+    } catch (err) { console.error(err); toast.error('Failed to create invoice') }
     finally { setSaving(false) }
   }
 
