@@ -361,10 +361,11 @@ function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName,
     if (!form.amount || !form.directorName) { toast.error('Director name and amount are required'); return }
     setSaving(true)
     try {
-      const invoiceRef = await addDoc(collection(db, 'invoices'), {
+      // Create the invoice
+      await addDoc(collection(db, 'invoices'), {
         schedulerId,
         schedulerName,
-        groupId:      form.groupId || null,
+        groupId:      form.groupId || prefillRfq?.groupId || null,
         groupName:    selectedGroup?.name ?? prefillRfq?.groupName ?? '',
         directorId:   form.directorId || selectedGroup?.directorId || null,
         directorName: form.directorName,
@@ -376,28 +377,35 @@ function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName,
         status:       'sent',
         createdAt:    serverTimestamp(),
       })
-      // Mark group as having an unpaid invoice
+
+      // Non-blocking side effects — don't let these fail the main action
       const groupId = form.groupId || prefillRfq?.groupId
-      if (groupId) {
-        await updateDoc(doc(db, 'gameGroups', groupId), { hasUnpaidInvoice: true })
-      }
-      // Notify the director that the invoice is ready
-      if (form.directorId) {
-        await addDoc(collection(db, 'notifications'), {
-          uid:       form.directorId,
-          type:      'invoice',
-          title:     '🧾 Invoice Ready to Pay',
-          message:   `${schedulerName} sent you an invoice of $${Number(form.amount).toFixed(2)} for "${selectedGroup?.name ?? prefillRfq?.groupName ?? 'your event'}"`,
-          read:      false,
-          link:      '/director/invoices',
-          createdAt: serverTimestamp(),
-        })
-      }
+      Promise.all([
+        // Mark group as having an unpaid invoice (best-effort)
+        groupId
+          ? updateDoc(doc(db, 'gameGroups', groupId), { hasUnpaidInvoice: true }).catch(e => console.warn('Could not update group status:', e))
+          : Promise.resolve(),
+        // Notify the director
+        form.directorId
+          ? addDoc(collection(db, 'notifications'), {
+              uid:       form.directorId,
+              type:      'invoice',
+              title:     '🧾 Invoice Ready to Pay',
+              message:   `${schedulerName} sent you an invoice of $${Number(form.amount).toFixed(2)} for "${selectedGroup?.name ?? prefillRfq?.groupName ?? 'your event'}"`,
+              read:      false,
+              link:      '/director/invoices',
+              createdAt: serverTimestamp(),
+            }).catch(e => console.warn('Could not notify director:', e))
+          : Promise.resolve(),
+      ])
+
       toast.success('Invoice sent to director!')
       onSaved()
       onClose()
-    } catch (err) { console.error(err); toast.error('Failed to create invoice') }
-    finally { setSaving(false) }
+    } catch (err) {
+      console.error('Create invoice error:', err)
+      toast.error(`Failed to create invoice: ${err.message ?? err}`)
+    } finally { setSaving(false) }
   }
 
   return (

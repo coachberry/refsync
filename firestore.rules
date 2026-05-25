@@ -152,7 +152,7 @@ service cloud.firestore {
         resource.data.schedulerId == request.auth.uid ||
         resource.data.directorId  == request.auth.uid
       );
-      allow create: if isAuth() && hasRole('scheduler');
+      allow create: if isAuth();
       allow update: if isAuth() && (
         resource.data.schedulerId == request.auth.uid ||
         resource.data.directorId  == request.auth.uid
