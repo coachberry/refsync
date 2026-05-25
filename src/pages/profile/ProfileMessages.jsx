@@ -74,8 +74,11 @@ export default function ProfileMessages() {
                 <ThreadItem
                   key={thread.id}
                   thread={thread}
-                  isActive={activeThread?.participantId === thread.participantId}
-                  onClick={() => setActiveThread(thread)}
+                  isActive={activeThread?.id === thread.id}
+                  onClick={() => {
+                    console.log('Thread clicked:', thread)
+                    setActiveThread(thread)
+                  }}
                 />
               ))
             )}
@@ -178,6 +181,8 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
   const threadId = thread.id
     || (currentUid && thread.participantId ? getThreadId(currentUid, thread.participantId) : null)
   const participantId = thread.participantId
+
+  console.log('ChatPane rendering:', { threadId, participantId, thread })
 
   useEffect(() => {
     if (!threadId) return
