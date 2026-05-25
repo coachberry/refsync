@@ -21,6 +21,7 @@ import OfficialHome         from '@/pages/official/OfficialHome'
 import OfficialSchedule     from '@/pages/official/OfficialSchedule'
 import OfficialAvailability from '@/pages/official/OfficialAvailability'
 import OfficialProfile      from '@/pages/official/OfficialProfile'
+import OfficialStats        from '@/pages/official/OfficialStats'
 import OfficialNews         from '@/pages/official/OfficialNews'
 import OfficialExpenses     from '@/pages/official/OfficialExpenses'
 
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/official/inbox"        element={<Navigate to="/profile/messages" replace />} />
           <Route path="/official/news"         element={<OfficialNews />} />
           <Route path="/official/profile"      element={<OfficialProfile />} />
+          <Route path="/official/stats"        element={<OfficialStats />} />
           <Route path="/official/expenses"     element={<OfficialExpenses />} />
         </Route>
       </Route>

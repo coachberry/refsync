@@ -30,10 +30,10 @@ const NAV_CONFIG = {
       { to: '/official/schedule',     label: 'Schedule',     icon: CalIcon },
       { to: '/official/availability', label: 'Availability', icon: ClockIcon },
     ]},
-    { section: 'My Profile', items: [
-      { to: '/official/profile',   label: 'Profile & Stats', icon: UserIcon },
-      { to: '/official/expenses',  label: 'Expenses',        icon: ReceiptIcon },
-      { to: '/settings/add-role',  label: 'Add a Role',      icon: PlusIcon },
+    { section: 'My Account', items: [
+      { to: '/official/stats',        label: 'Stats',        icon: UserIcon },
+      { to: '/official/expenses',     label: 'Expenses',     icon: ReceiptIcon },
+      { to: '/settings/add-role',     label: 'Add a Role',   icon: PlusIcon },
     ]},
   ],
   scheduler: [

@@ -1,0 +1,35 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+.section      { display: flex; flex-direction: column; gap: 10px; }
+.sectionLabel { font-size: 13px; font-weight: 700; color: var(--color-muted); text-transform: uppercase; letter-spacing: .6px; }
+
+.statsGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+.statCard  {
+  background: var(--color-surface); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 16px; text-align: center;
+  box-shadow: var(--shadow-sm);
+}
+.statIcon  { font-size: 22px; margin-bottom: 8px; }
+.statValue { font-family: var(--font-display); font-size: 26px; font-weight: 800; color: var(--color-text); }
+.statLabel { font-size: 12px; color: var(--color-muted); margin-top: 3px; }
+
+.zeroNote { font-size: 13px; color: var(--color-muted); font-style: italic; padding: 10px 0; }
+
+.gameRow {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 18px; border-bottom: 1px solid var(--color-border);
+}
+.gameRow:last-child { border-bottom: none; }
+.gameIcon  { font-size: 20px; flex-shrink: 0; }
+.gameInfo  { flex: 1; min-width: 0; }
+.gameTitle { font-size: 13.5px; font-weight: 600; }
+.gameMeta  { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.gamePay   { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--teal); flex-shrink: 0; }
+
+@media (max-width: 600px) {
+  .statsGrid { grid-template-columns: repeat(2, 1fr); }
+}
