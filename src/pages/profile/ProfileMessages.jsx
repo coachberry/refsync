@@ -165,16 +165,25 @@ function ChatPane({ thread, currentUid, currentName, onBack }) {
 
   // thread.id is the RTDB key (e.g. uid1__uid2)
   // thread.participantId is who we're talking to
-  const threadId      = thread.id
+// ── Chat pane ─────────────────────────────────────────────────────────────────
+function ChatPane({ thread, currentUid, currentName, onBack }) {
+  const [messages, setMessages] = useState([])
+  const [loading, setLoading]   = useState(true)
+  const [text, setText]         = useState('')
+  const [sending, setSending]   = useState(false)
+  const bottomRef = useRef(null)
+
+  // thread.id is the RTDB key = the thread ID
+  // Fallback: compute from currentUid + participantId
+  const threadId = thread.id
+    || (currentUid && thread.participantId ? getThreadId(currentUid, thread.participantId) : null)
   const participantId = thread.participantId
 
   useEffect(() => {
-    if (!threadId) { console.warn('ChatPane: no threadId', thread); return }
-    console.log('ChatPane: subscribing to threadId:', threadId, 'participantId:', participantId)
+    if (!threadId) return
     setLoading(true)
     setMessages([])
     const unsub = subscribeMessages(threadId, (msgs) => {
-      console.log('ChatPane: got messages:', msgs.length, msgs)
       setMessages(msgs)
       setLoading(false)
       if (currentUid) markThreadRead(currentUid, threadId)

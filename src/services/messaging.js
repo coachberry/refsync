@@ -1,47 +1,49 @@
 /**
  * services/messaging.js
- * Firebase Realtime Database chat service.
- * Thread ID = sorted UIDs joined with '__' (double underscore avoids UID conflicts)
+ * Simple, reliable RTDB messaging.
+ * Thread ID = sorted UIDs joined with '_'
+ * Messages stored at: threads/{threadId}/messages/{msgId}
+ * Thread metadata at: userThreads/{uid}/{threadId}
  */
-import {
-  ref, push, onValue, off, serverTimestamp, update, get, set,
-} from 'firebase/database'
+import { ref, push, onValue, off, update, get } from 'firebase/database'
 import { rtdb } from '@/lib/firebase'
 
-// ── Thread ID ─────────────────────────────────────────────────────────────────
-// Use a hash-based ID to avoid any separator collision with UIDs
-export const getThreadId = (uid1, uid2) => {
-  const sorted = [uid1, uid2].sort()
-  return `${sorted[0]}_${sorted[1]}`
-}
+// ── Thread ID — deterministic, same for both users ────────────────────────────
+export const getThreadId = (uid1, uid2) =>
+  [uid1, uid2].sort().join('_')
 
-// ── Send message ──────────────────────────────────────────────────────────────
+// ── Send a message ────────────────────────────────────────────────────────────
 export const sendMessage = async (threadId, senderId, senderName, text, recipientId) => {
   if (!threadId || !senderId || !text?.trim()) return
 
-  // Push message to thread
-  const msgRef = ref(rtdb, `threads/${threadId}/messages`)
   const now = Date.now()
-  await push(msgRef, {
+  const msgData = {
     senderId,
     senderName,
     text: text.trim(),
-    timestamp: now,   // Use client timestamp — avoids serverTimestamp sort issues
+    timestamp: now,
     read: false,
-  })
+  }
 
-  // Update thread metadata for both sides
+  // Write message + update metadata in one atomic update
   const updates = {}
-  updates[`threads/${threadId}/lastMessage`]   = text.trim()
-  updates[`threads/${threadId}/lastSender`]    = senderName
-  updates[`threads/${threadId}/updatedAt`]     = now
 
-  // Sender's thread entry
+  // The message itself
+  const newMsgKey = `threads/${threadId}/messages/${now}_${Math.random().toString(36).slice(2, 7)}`
+  updates[newMsgKey] = msgData
+
+  // Thread metadata
+  updates[`threads/${threadId}/lastMessage`]  = text.trim()
+  updates[`threads/${threadId}/lastSender`]   = senderName
+  updates[`threads/${threadId}/updatedAt`]    = now
+
+  // Sender side — mark as read (they just sent it)
   updates[`userThreads/${senderId}/${threadId}/lastMessage`]    = text.trim()
   updates[`userThreads/${senderId}/${threadId}/updatedAt`]      = now
   updates[`userThreads/${senderId}/${threadId}/unread`]         = false
+  updates[`userThreads/${senderId}/${threadId}/participantId`]  = recipientId
 
-  // Recipient's thread entry — mark unread, preserve participantId/Name
+  // Recipient side — mark as unread
   if (recipientId) {
     updates[`userThreads/${recipientId}/${threadId}/lastMessage`]    = text.trim()
     updates[`userThreads/${recipientId}/${threadId}/updatedAt`]      = now
@@ -53,81 +55,78 @@ export const sendMessage = async (threadId, senderId, senderName, text, recipien
   await update(ref(rtdb), updates)
 }
 
-// ── Subscribe to messages in a thread ────────────────────────────────────────
+// ── Subscribe to all messages in a thread ─────────────────────────────────────
 export const subscribeMessages = (threadId, callback) => {
-  if (!threadId) return () => {}
+  if (!threadId) { callback([]); return () => {} }
+
   const msgsRef = ref(rtdb, `threads/${threadId}/messages`)
   onValue(msgsRef, (snap) => {
     const msgs = []
     snap.forEach(child => {
-      const val = child.val()
-      msgs.push({ id: child.key, ...val })
+      msgs.push({ id: child.key, ...child.val() })
     })
-    // Sort by timestamp ascending — using client timestamps (numbers) so this works reliably
+    // Sort by timestamp
     msgs.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0))
     callback(msgs)
   })
   return () => off(msgsRef)
 }
 
-// ── Subscribe to user's thread list ──────────────────────────────────────────
+// ── Subscribe to a user's thread list ────────────────────────────────────────
 export const subscribeUserThreads = (uid, callback) => {
-  if (!uid) return () => {}
-  const threadRef = ref(rtdb, `userThreads/${uid}`)
-  onValue(threadRef, (snap) => {
+  if (!uid) { callback([]); return () => {} }
+
+  const userThreadsRef = ref(rtdb, `userThreads/${uid}`)
+  onValue(userThreadsRef, (snap) => {
     const threads = []
     snap.forEach(child => {
       const val = child.val()
-      // Only include threads that have a participantId (real conversations)
-      if (val?.participantId) {
+      if (val && val.participantId) {
         threads.push({ id: child.key, ...val })
       }
     })
-    // Sort by updatedAt descending
+    // Sort newest first
     threads.sort((a, b) => (Number(b.updatedAt) || 0) - (Number(a.updatedAt) || 0))
     callback(threads)
   })
-  return () => off(threadRef)
+  return () => off(userThreadsRef)
 }
 
-// ── Mark thread as read ───────────────────────────────────────────────────────
+// ── Mark a thread as read ─────────────────────────────────────────────────────
 export const markThreadRead = (uid, threadId) => {
-  if (!uid || !threadId) return
+  if (!uid || !threadId) return Promise.resolve()
   return update(ref(rtdb, `userThreads/${uid}/${threadId}`), { unread: false })
 }
 
-// ── Start a thread (idempotent — safe to call multiple times) ─────────────────
+// ── Initialize a thread between two users ────────────────────────────────────
+// Safe to call multiple times — uses update() not set() so never overwrites messages
 export const startThread = async (fromUid, fromName, toUid, toName) => {
   if (!fromUid || !toUid) return null
+
   const threadId = getThreadId(fromUid, toUid)
   const now = Date.now()
 
-  // Check if thread entries already exist — don't overwrite participantId/Name
-  const [fromSnap, toSnap] = await Promise.all([
-    get(ref(rtdb, `userThreads/${fromUid}/${threadId}`)),
-    get(ref(rtdb, `userThreads/${toUid}/${threadId}`)),
-  ])
-
   const updates = {}
 
-  // Only set participantId/Name if not already set (preserve existing data)
-  if (!fromSnap.exists() || !fromSnap.val()?.participantId) {
-    updates[`userThreads/${fromUid}/${threadId}/participantId`]   = toUid
-    updates[`userThreads/${fromUid}/${threadId}/participantName`] = toName
-    updates[`userThreads/${fromUid}/${threadId}/unread`]          = false
-    updates[`userThreads/${fromUid}/${threadId}/updatedAt`]       = now
+  // Always write participantId/Name for both sides so thread list shows correctly
+  updates[`userThreads/${fromUid}/${threadId}/participantId`]   = toUid
+  updates[`userThreads/${fromUid}/${threadId}/participantName`] = toName
+  if (!updates[`userThreads/${fromUid}/${threadId}/updatedAt`]) {
+    updates[`userThreads/${fromUid}/${threadId}/updatedAt`] = now
+  }
+  if (!updates[`userThreads/${fromUid}/${threadId}/unread`]) {
+    updates[`userThreads/${fromUid}/${threadId}/unread`] = false
   }
 
-  if (!toSnap.exists() || !toSnap.val()?.participantId) {
-    updates[`userThreads/${toUid}/${threadId}/participantId`]   = fromUid
-    updates[`userThreads/${toUid}/${threadId}/participantName`] = fromName
-    updates[`userThreads/${toUid}/${threadId}/unread`]          = false
-    updates[`userThreads/${toUid}/${threadId}/updatedAt`]       = now
+  updates[`userThreads/${toUid}/${threadId}/participantId`]   = fromUid
+  updates[`userThreads/${toUid}/${threadId}/participantName`] = fromName
+  if (!updates[`userThreads/${toUid}/${threadId}/updatedAt`]) {
+    updates[`userThreads/${toUid}/${threadId}/updatedAt`] = now
+  }
+  if (!updates[`userThreads/${toUid}/${threadId}/unread`]) {
+    updates[`userThreads/${toUid}/${threadId}/unread`] = false
   }
 
-  if (Object.keys(updates).length > 0) {
-    await update(ref(rtdb), updates)
-  }
-
+  await update(ref(rtdb), updates)
   return threadId
 }
