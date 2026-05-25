@@ -24,6 +24,7 @@ export default function SchedQuotes() {
   const [rfqs, setRfqs]         = useState([])
   const [loading, setLoading]   = useState(true)
   const [quoteTarget, setQuoteTarget] = useState(null)
+  const [rejectingId, setRejectingId] = useState(null)
 
   useEffect(() => {
     if (!user) return
@@ -34,6 +35,33 @@ export default function SchedQuotes() {
     })
     return unsub
   }, [user])
+
+  const handleReject = async (rfq) => {
+    if (!window.confirm(`Reject this quote request from "${rfq.groupName}"?\n\nThe game director will be notified that you're unable to fill this request.`)) return
+    setRejectingId(rfq.id)
+    try {
+      await updateRFQ(rfq.id, {
+        status:     'declined',
+        declinedAt: new Date().toISOString(),
+        schedulerName: profile?.displayName,
+      })
+      // Notify the director
+      await addDoc(collection(db, 'notifications'), {
+        uid:       rfq.directorUid,
+        type:      'rfq',
+        title:     '❌ Scheduler Unable to Fill Request',
+        message:   `${profile?.displayName ?? 'A scheduler'} is unable to fill the quote request for "${rfq.groupName}". You may want to find another scheduler.`,
+        read:      false,
+        link:      '/director/events',
+        groupId:   rfq.groupId,
+        createdAt: serverTimestamp(),
+      })
+      toast.success('Request rejected — the director has been notified')
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to reject request')
+    } finally { setRejectingId(null) }
+  }
 
   const openRfqs   = rfqs.filter(r => r.status === 'open')
   const activeRfqs = rfqs.filter(r => ['quoted','accepted','not_selected','declined'].includes(r.status))
@@ -59,7 +87,11 @@ export default function SchedQuotes() {
               <div className={styles.sectionLabel}>📬 Awaiting Your Quote ({openRfqs.length})</div>
               <div className={styles.rfqList}>
                 {openRfqs.map(rfq => (
-                  <RFQCard key={rfq.id} rfq={rfq} onQuote={() => setQuoteTarget(rfq)} />
+                  <RFQCard key={rfq.id} rfq={rfq}
+                    onQuote={() => setQuoteTarget(rfq)}
+                    onReject={() => handleReject(rfq)}
+                    rejecting={rejectingId === rfq.id}
+                  />
                 ))}
               </div>
             </>
@@ -91,7 +123,7 @@ export default function SchedQuotes() {
 }
 
 // ── RFQ Card ──────────────────────────────────────────────────────────────────
-function RFQCard({ rfq, onQuote }) {
+function RFQCard({ rfq, onQuote, onReject, rejecting }) {
   const meta = STATUS_META[rfq.status] ?? STATUS_META.open
   const receivedAt = rfq.createdAt?.toDate?.() ?? (rfq.createdAt ? new Date(rfq.createdAt) : null)
   const totalHours = rfq.totalHours ?? 0
@@ -247,6 +279,10 @@ function RFQCard({ rfq, onQuote }) {
       {onQuote && (
         <div className={styles.rfqActions}>
           <Button variant="primary" onClick={onQuote}>Submit Quote</Button>
+          <Button variant="ghost" loading={rejecting} onClick={onReject}
+            style={{ color: 'var(--red)', borderColor: 'var(--red-light)' }}>
+            ✕ Reject Request
+          </Button>
         </div>
       )}
 
@@ -255,6 +291,9 @@ function RFQCard({ rfq, onQuote }) {
       )}
       {rfq.status === 'not_selected' && (
         <div className={styles.rfqNotSelected}>Another scheduler was selected for this event.</div>
+      )}
+      {rfq.status === 'declined' && (
+        <div className={styles.rfqNotSelected}>❌ You rejected this request — the director was notified.</div>
       )}
     </div>
   )
