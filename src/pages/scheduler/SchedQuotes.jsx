@@ -96,13 +96,14 @@ function RFQCard({ rfq, onQuote }) {
   const receivedAt = rfq.createdAt?.toDate?.() ?? (rfq.createdAt ? new Date(rfq.createdAt) : null)
   const totalHours = rfq.totalHours ?? 0
   const totalGames = rfq.gameCount  ?? 0
-  const [games, setGames]         = useState([])
+  const [games, setGames]               = useState([])
   const [gamesLoading, setGamesLoading] = useState(false)
-  const [expanded, setExpanded]   = useState(false)
+  const [gamesLoaded, setGamesLoaded]   = useState(false)
+  const [expanded, setExpanded]         = useState(false)
 
-  // Load games when card is expanded
+  // Load games only once when first expanded
   useEffect(() => {
-    if (!expanded || !rfq.groupId || games.length > 0) return
+    if (!expanded || gamesLoaded || !rfq.groupId) return
     setGamesLoading(true)
     getDocs(query(collection(db, 'games'), where('groupId', '==', rfq.groupId)))
       .then(snap => {
@@ -114,13 +115,21 @@ function RFQCard({ rfq, onQuote }) {
             return da - db_
           })
         setGames(g)
+        setGamesLoaded(true)
       })
       .finally(() => setGamesLoading(false))
-  }, [expanded, rfq.groupId])
+  }, [expanded]) // only re-run when expanded changes, gamesLoaded guards duplicate fetches
 
-  // Unique durations
-  const durations = [...new Set((rfq.divisions ?? []).map(d => d).concat([]))]
-  const officialsLabel = { both: '🏒📋 Referees & Scorekeepers', referees: '🏒 Referees Only', scorekeepers: '📋 Scorekeepers Only' }[rfq.officialsNeeded] ?? '—'
+  const officialsLabel = {
+    both:         '🏒📋 Referees & Scorekeepers',
+    referees:     '🏒 Referees Only',
+    scorekeepers: '📋 Scorekeepers Only',
+  }[rfq.officialsNeeded] ?? '—'
+
+  // Average game duration across games (or use totalHours / totalGames as estimate)
+  const avgDuration = totalGames > 0 && totalHours > 0
+    ? (totalHours / totalGames).toFixed(2).replace(/\.?0+$/, '')
+    : '—'
 
   return (
     <div className={[styles.rfqCard, rfq.status === 'accepted' ? styles.rfqAccepted : ''].join(' ')}>
@@ -134,21 +143,23 @@ function RFQCard({ rfq, onQuote }) {
         <Badge variant={meta.variant}>{meta.icon} {meta.label}</Badge>
       </div>
 
-      {/* Summary stats */}
+      {/* Summary stats — Games · Game Duration · Total Hours · Officials */}
       <div className={styles.rfqDetails}>
         <div className={styles.rfqDetail}><span>Games</span><strong>{totalGames}</strong></div>
+        <div className={styles.rfqDetail}><span>Game Duration</span><strong>{avgDuration}hr</strong></div>
         <div className={styles.rfqDetail}><span>Total Hours</span><strong>{totalHours.toFixed(1)}hrs</strong></div>
         <div className={styles.rfqDetail}><span>Officials</span><strong>{officialsLabel}</strong></div>
-        {rfq.budget && <div className={styles.rfqDetail}><span>Budget</span><strong>${Number(rfq.budget).toLocaleString()}</strong></div>}
       </div>
 
-      {/* Dates & Venues */}
+      {/* Dates, Venues, Divisions, Notes */}
       <div className={styles.rfqMeta}>
         {rfq.startDate && (
           <div className={styles.rfqMetaRow}>
             <span className={styles.rfqMetaLabel}>📅 Dates</span>
-            <span>{format(new Date(rfq.startDate), 'MMM d, yyyy')}
-              {rfq.endDate && rfq.endDate !== rfq.startDate ? ` – ${format(new Date(rfq.endDate), 'MMM d, yyyy')}` : ''}
+            <span>
+              {format(new Date(rfq.startDate), 'MMM d, yyyy')}
+              {rfq.endDate && rfq.endDate !== rfq.startDate
+                ? ` – ${format(new Date(rfq.endDate), 'MMM d, yyyy')}` : ''}
             </span>
           </div>
         )}
@@ -220,7 +231,7 @@ function RFQCard({ rfq, onQuote }) {
         </div>
       )}
 
-      {/* Quote sent status */}
+      {/* Quote sent */}
       {rfq.quoteAmount && (
         <div className={styles.rfqQuoteSent}>
           Your quote: <strong>${rfq.quoteAmount.toFixed(2)}</strong>
@@ -248,8 +259,6 @@ function RFQCard({ rfq, onQuote }) {
     </div>
   )
 }
-
-// ── Submit Quote Modal ────────────────────────────────────────────────────────
 const PRICE_MODES = [
   { id: 'flat',       label: '💰 Flat Rate',       desc: 'One total price for the entire event' },
   { id: 'per_game',   label: '🏒 Price Per Game',   desc: 'Set one price × number of games' },
