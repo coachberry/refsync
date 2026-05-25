@@ -190,3 +190,36 @@
 .quotePending   { font-size: 13px; color: var(--color-muted); font-style: italic; }
 .quoteAccepted  { font-size: 13px; color: var(--teal); font-weight: 600; }
 .quoteDeclined  { font-size: 13px; color: var(--color-muted); }
+
+/* CSV import toolbar */
+.csvToolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius); padding: 10px 14px; margin-bottom: 14px; gap: 12px;
+}
+.csvToolbarLeft { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.csvLabel { font-size: 12.5px; font-weight: 600; color: var(--color-muted); }
+.csvBtn {
+  background: none; border: 1px solid var(--color-border);
+  border-radius: 6px; padding: 5px 12px; font-size: 12.5px;
+  font-weight: 600; cursor: pointer; font-family: var(--font-body);
+  color: var(--teal); transition: all .12s;
+}
+.csvBtn:hover { background: var(--color-surface); }
+.csvHint { font-size: 12px; color: var(--color-muted); flex-shrink: 0; }
+.csvError {
+  background: var(--red-light); border: 1px solid rgba(204,31,31,.2);
+  border-radius: var(--radius); padding: 10px 14px;
+  font-size: 13px; color: var(--red); margin-bottom: 14px;
+  white-space: pre-wrap; line-height: 1.6;
+}
+
+/* Scheduler picker sections */
+.schedPickerSection {
+  background: var(--color-surface-2); border: 1px solid var(--color-border);
+  border-radius: var(--radius-md); padding: 14px; margin-bottom: 4px;
+}
+.schedPickerLabel {
+  font-size: 12px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .6px; color: var(--color-muted); margin-bottom: 10px;
+}

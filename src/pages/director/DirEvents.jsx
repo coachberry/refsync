@@ -712,132 +712,270 @@ function AddGamesModal({ open, onClose, group }) {
 
 // ── Notify Schedulers Modal ───────────────────────────────────────────────────
 function NotifySchedulersModal({ open, onClose, group, userId, userName, connectedSchedulers }) {
-  const [saving, setSaving]       = useState(false)
-  const [selected, setSelected]   = useState([])
-  const [inviteEmail, setInviteEmail] = useState('')
-  const [note, setNote]           = useState('')
+  const [saving, setSaving]           = useState(false)
+  const [schedulerProfiles, setSchedulerProfiles] = useState([])
+  const [refSchedulerUid, setRefSchedulerUid]     = useState(null)
+  const [skSchedulerUid, setSkSchedulerUid]       = useState(null)
+  const [refInviteEmail, setRefInviteEmail]       = useState('')
+  const [skInviteEmail, setSkInviteEmail]         = useState('')
+  const [note, setNote]               = useState('')
 
-  // Filter to scheduler connections
-  const schedulers = connectedSchedulers.filter(c => c.type === 'director-scheduler')
+  const officialsNeeded = group?.officialsNeeded ?? 'both'
+  const needsBoth = officialsNeeded === 'both'
+  const needsRef  = officialsNeeded === 'referees'     || needsBoth
+  const needsSK   = officialsNeeded === 'scorekeepers' || needsBoth
 
-  const toggleScheduler = (uid) =>
-    setSelected(s => s.includes(uid) ? s.filter(x => x !== uid) : [...s, uid])
+  const totalHours = group?.totalHours ?? 0
+  const totalGames = group?.totalGames ?? 0
+
+  // Load scheduler profiles to get their subRoles
+  useEffect(() => {
+    if (!open) return
+    const conns = connectedSchedulers.filter(c => c.type === 'director-scheduler')
+    if (!conns.length) { setSchedulerProfiles([]); return }
+    Promise.all(conns.map(async conn => {
+      const uid = conn.toUid ?? conn.fromUid
+      if (!uid || uid === '__invite__') return null
+      try {
+        const snap = await import('firebase/firestore').then(({ getDoc, doc }) =>
+          getDoc(doc(db, 'users', uid))
+        )
+        if (!snap.exists()) return null
+        const data = snap.data()
+        return {
+          uid,
+          name:     data.displayName ?? conn.toName ?? 'Scheduler',
+          email:    data.email ?? '',
+          subRoles: data.subRoles ?? [],
+          isRefSched: (data.subRoles ?? []).includes('ref_scheduler'),
+          isSKSched:  (data.subRoles ?? []).includes('sk_scheduler'),
+        }
+      } catch { return null }
+    })).then(profiles => setSchedulerProfiles(profiles.filter(Boolean)))
+  }, [open, connectedSchedulers.length])
+
+  const refSchedulers = schedulerProfiles.filter(s => s.isRefSched)
+  const skSchedulers  = schedulerProfiles.filter(s => s.isSKSched)
+  const allSchedulers = schedulerProfiles // for single-type events
 
   const handleSend = async () => {
-    if (!selected.length && !inviteEmail.trim()) {
-      toast.error('Select at least one scheduler or enter an email')
-      return
-    }
     if (!(group.totalGames > 0)) {
-      toast.error('Add games to this event before notifying schedulers')
-      return
+      toast.error('Add games to this event before notifying schedulers'); return
     }
+
+    // Validation — must pick someone for each needed type
+    if (needsRef && !refSchedulerUid && !refInviteEmail.trim()) {
+      toast.error('Select or invite a Referee Scheduler'); return
+    }
+    if (needsSK && !skSchedulerUid && !skInviteEmail.trim()) {
+      toast.error('Select or invite a Scorekeeper Scheduler'); return
+    }
+
     setSaving(true)
     try {
-      // Send to selected connected schedulers
-      if (selected.length > 0) {
-        await sendRFQ(group.id, group, selected, userId, userName)
-        toast.success(`${selected.length} scheduler${selected.length > 1 ? 's' : ''} notified!`)
-      }
-      // Send to email invite
-      if (inviteEmail.trim()) {
-        const result = await sendRFQByEmail(group.id, group, inviteEmail.trim(), userId, userName)
-        if (result.found) {
-          toast.success(`Quote request sent to ${inviteEmail}`)
-        } else {
-          toast(`${inviteEmail} doesn't have a RefSync account yet — they'll be notified when they join`, { icon: '📧' })
+      const sends = []
+
+      // Ref RFQ
+      if (needsRef) {
+        const rfqData = { ...group, officialsNeeded: 'referees', rfqType: 'referees' }
+        if (refSchedulerUid) {
+          sends.push(sendRFQ(group.id, rfqData, [refSchedulerUid], userId, userName))
+        } else if (refInviteEmail.trim()) {
+          sends.push(sendRFQByEmail(group.id, rfqData, refInviteEmail.trim(), userId, userName))
         }
       }
-      setSelected([])
-      setInviteEmail('')
-      setNote('')
+
+      // SK RFQ
+      if (needsSK) {
+        const rfqData = { ...group, officialsNeeded: 'scorekeepers', rfqType: 'scorekeepers' }
+        if (skSchedulerUid) {
+          sends.push(sendRFQ(group.id, rfqData, [skSchedulerUid], userId, userName))
+        } else if (skInviteEmail.trim()) {
+          sends.push(sendRFQByEmail(group.id, rfqData, skInviteEmail.trim(), userId, userName))
+        }
+      }
+
+      await Promise.all(sends)
+
+      const sentCount = sends.length
+      toast.success(`${sentCount} quote request${sentCount > 1 ? 's' : ''} sent!`)
+      setRefSchedulerUid(null); setSkSchedulerUid(null)
+      setRefInviteEmail(''); setSkInviteEmail(''); setNote('')
       onClose()
     } catch (err) {
       toast.error('Failed to notify schedulers')
       console.error(err)
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
-  const refRate = group?.refInvoiceRate ?? null
-  const skRate  = group?.skInvoiceRate  ?? null
-  const totalHours = group?.totalHours ?? 0
-  const totalGames = group?.totalGames ?? 0
-
-  return (
-    <Modal open={open} onClose={onClose} title={`Notify Schedulers — ${group?.name ?? ''}`} size="md"
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSend} disabled={!selected.length && !inviteEmail.trim()}>Send Notification</Button></>}
-    >
-      {/* Game summary */}
-      <div className={styles.rfqSummary}>
-        <div className={styles.rfqSummaryTitle}>📋 Game Group Summary</div>
-        <div className={styles.rfqSummaryGrid}>
-          <div><span>Games</span><strong>{totalGames}</strong></div>
-          <div><span>Total Hours</span><strong>{totalHours.toFixed(2)}hrs</strong></div>
-          <div><span>Officials Needed</span><strong>{{both:'Refs & SKs', referees:'Refs Only', scorekeepers:'SKs Only'}[group?.officialsNeeded] ?? '—'}</strong></div>
-          <div><span>Venues</span><strong>{group?.venues?.join(', ') ?? '—'}</strong></div>
-        </div>
-        {refRate && <div className={styles.rfqRate}>🏒 Ref rate: ${refRate.hourlyRate}/hr + ${refRate.perGameFee}/game · Est. ${(refRate.hourlyRate * totalHours + refRate.perGameFee * totalGames).toFixed(2)}</div>}
-        {skRate  && <div className={styles.rfqRate}>📋 SK rate: ${skRate.hourlyRate}/hr + ${skRate.perGameFee}/game · Est. ${(skRate.hourlyRate * totalHours + skRate.perGameFee * totalGames).toFixed(2)}</div>}
-      </div>
-
-      <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 14, lineHeight: 1.5 }}>
-        Select schedulers to notify. They'll see the full game group details and can submit a quote with their price.
-      </p>
-
-      {/* Connected schedulers */}
-      {schedulers.length > 0 ? (
-        <div className={styles.section}>
-          <div className={styles.sectionLabel}>Your Connected Schedulers</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 14 }}>
-            {schedulers.map(conn => {
-              const uid = conn.toUid ?? conn.fromUid
-              const name = conn.toName ?? conn.fromName ?? 'Scheduler'
-              const isPicked = selected.includes(uid)
+  const SchedulerPicker = ({ type, label, icon, schedulers, selectedUid, onSelect, inviteEmail, onInviteEmail }) => {
+    const hasConnected = schedulers.length > 0
+    return (
+      <div className={styles.schedPickerSection}>
+        <div className={styles.schedPickerLabel}>{icon} {label}</div>
+        {hasConnected ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 10 }}>
+            {schedulers.map(s => {
+              const isPicked = selectedUid === s.uid
               return (
-                <div key={conn.id}
-                  onClick={() => toggleScheduler(uid)}
+                <div key={s.uid}
+                  onClick={() => onSelect(isPicked ? null : s.uid)}
                   style={{
                     display: 'flex', alignItems: 'center', gap: 12,
-                    padding: '11px 14px', borderRadius: 'var(--radius)',
+                    padding: '10px 13px', borderRadius: 'var(--radius)',
                     border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
                     background: isPicked ? 'rgba(37,99,235,.05)' : 'var(--color-surface)',
                     cursor: 'pointer', transition: 'all .13s',
                   }}
                 >
                   <div style={{
-                    width: 20, height: 20, borderRadius: 4, flexShrink: 0,
+                    width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
                     border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
                     background: isPicked ? 'var(--blue)' : 'transparent',
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                   }}>
-                    {isPicked && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
+                    {isPicked && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff' }} />}
                   </div>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: 14, fontWeight: 600 }}>{name}</div>
-                    {conn.organization && <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{conn.organization}</div>}
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{s.email}</div>
                   </div>
+                  {isPicked && <span style={{ fontSize: 12, color: 'var(--blue)', fontWeight: 700 }}>Selected</span>}
                 </div>
               )
             })}
           </div>
+        ) : (
+          <div style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 8, fontStyle: 'italic' }}>
+            No connected {type} schedulers — invite by email below
+          </div>
+        )}
+        {!selectedUid && (
+          <input
+            style={{ ...inviteInputSt }}
+            placeholder={`Or invite a ${type} scheduler by email…`}
+            value={inviteEmail}
+            onChange={e => onInviteEmail(e.target.value)}
+          />
+        )}
+      </div>
+    )
+  }
+
+  // For single-type events, show all schedulers
+  const SinglePicker = ({ label, icon, selectedUid, onSelect, inviteEmail, onInviteEmail }) => (
+    <div className={styles.schedPickerSection}>
+      <div className={styles.schedPickerLabel}>{icon} {label}</div>
+      {allSchedulers.length > 0 ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 7, marginBottom: 10 }}>
+          {allSchedulers.map(s => {
+            const isPicked = selectedUid === s.uid
+            return (
+              <div key={s.uid}
+                onClick={() => onSelect(isPicked ? null : s.uid)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12,
+                  padding: '10px 13px', borderRadius: 'var(--radius)',
+                  border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
+                  background: isPicked ? 'rgba(37,99,235,.05)' : 'var(--color-surface)',
+                  cursor: 'pointer', transition: 'all .13s',
+                }}
+              >
+                <div style={{
+                  width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
+                  border: `2px solid ${isPicked ? 'var(--blue)' : 'var(--color-border)'}`,
+                  background: isPicked ? 'var(--blue)' : 'transparent',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>
+                  {isPicked && <div style={{ width: 7, height: 7, borderRadius: '50%', background: '#fff' }} />}
+                </div>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontSize: 14, fontWeight: 600 }}>{s.name}</div>
+                  <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{s.email}</div>
+                </div>
+              </div>
+            )
+          })}
         </div>
       ) : (
-        <div style={{ background: 'var(--amber-light)', borderRadius: 'var(--radius)', padding: '12px 14px', marginBottom: 14, fontSize: 13, color: '#92400e' }}>
-          ⚠️ You don't have any connected schedulers yet. Add their email below to invite them.
+        <div style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 8, fontStyle: 'italic' }}>
+          No connected schedulers — invite by email below
+        </div>
+      )}
+      {!selectedUid && (
+        <input style={{ ...inviteInputSt }} placeholder="Or invite by email…" value={inviteEmail} onChange={e => onInviteEmail(e.target.value)} />
+      )}
+    </div>
+  )
+
+  const canSend = needsBoth
+    ? (refSchedulerUid || refInviteEmail.trim()) && (skSchedulerUid || skInviteEmail.trim())
+    : needsRef ? (refSchedulerUid || refInviteEmail.trim()) : (skSchedulerUid || skInviteEmail.trim())
+
+  return (
+    <Modal open={open} onClose={onClose}
+      title={`Notify Schedulers — ${group?.name ?? ''}`} size="md"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSend} disabled={!canSend}>Send Quote Request{needsBoth ? 's' : ''}</Button></>}
+    >
+      {/* Game summary */}
+      <div className={styles.rfqSummary}>
+        <div className={styles.rfqSummaryTitle}>📋 Game Group Summary</div>
+        <div className={styles.rfqSummaryGrid}>
+          <div><span>Games</span><strong>{totalGames}</strong></div>
+          <div><span>Total Hours</span><strong>{totalHours.toFixed(1)}hrs</strong></div>
+          <div><span>Officials Needed</span><strong>{{both:'Refs & Scorekeepers', referees:'Referees Only', scorekeepers:'Scorekeepers Only'}[officialsNeeded] ?? '—'}</strong></div>
+          <div><span>Venues</span><strong>{group?.venues?.slice(0,2).join(', ') ?? '—'}{(group?.venues?.length ?? 0) > 2 ? ` +${group.venues.length - 2}` : ''}</strong></div>
+        </div>
+      </div>
+
+      {/* Split pickers for "both" */}
+      {needsBoth && (
+        <div>
+          <p style={{ fontSize: 13, color: 'var(--color-muted)', marginBottom: 14, lineHeight: 1.5 }}>
+            This event needs both referees and scorekeepers. Choose a scheduler for each — they'll each receive a separate quote request and submit their price independently.
+          </p>
+          <SchedulerPicker
+            type="referee" label="Referee Scheduler" icon="🏒"
+            schedulers={refSchedulers.length > 0 ? refSchedulers : allSchedulers}
+            selectedUid={refSchedulerUid} onSelect={setRefSchedulerUid}
+            inviteEmail={refInviteEmail} onInviteEmail={setRefInviteEmail}
+          />
+          <div style={{ height: 12 }} />
+          <SchedulerPicker
+            type="scorekeeper" label="Scorekeeper Scheduler" icon="📋"
+            schedulers={skSchedulers.length > 0 ? skSchedulers : allSchedulers}
+            selectedUid={skSchedulerUid} onSelect={setSkSchedulerUid}
+            inviteEmail={skInviteEmail} onInviteEmail={setSkInviteEmail}
+          />
         </div>
       )}
 
-      {/* Invite by email */}
-      <div className={styles.section}>
-        <div className={styles.sectionLabel}>Invite a New Scheduler by Email</div>
-        <Input label="Scheduler's Email" placeholder="scheduler@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
-      </div>
+      {/* Single picker for ref-only or SK-only */}
+      {!needsBoth && needsRef && (
+        <SinglePicker
+          label="Referee Scheduler" icon="🏒"
+          selectedUid={refSchedulerUid} onSelect={setRefSchedulerUid}
+          inviteEmail={refInviteEmail} onInviteEmail={setRefInviteEmail}
+        />
+      )}
+      {!needsBoth && needsSK && (
+        <SinglePicker
+          label="Scorekeeper Scheduler" icon="📋"
+          selectedUid={skSchedulerUid} onSelect={setSkSchedulerUid}
+          inviteEmail={skInviteEmail} onInviteEmail={setSkInviteEmail}
+        />
+      )}
 
-      <Textarea label="Note (optional)" placeholder="Any specific requirements or information for the scheduler…" value={note} onChange={e => setNote(e.target.value)} rows={2} />
+      <Textarea label="Note (optional)" placeholder="Any specific requirements…" value={note} onChange={e => setNote(e.target.value)} rows={2} style={{ marginTop: 12 }} />
     </Modal>
   )
+}
+
+const inviteInputSt = {
+  width: '100%', padding: '8px 10px', borderRadius: 8,
+  border: '1.5px dashed var(--color-border)', background: 'var(--color-surface-2)',
+  fontSize: 13, fontFamily: 'var(--font-body)', outline: 'none', boxSizing: 'border-box',
+  color: 'var(--color-muted)',
 }
 
 // ── Quotes Modal ──────────────────────────────────────────────────────────────
