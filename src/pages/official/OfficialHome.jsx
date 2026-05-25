@@ -8,6 +8,7 @@ import { Card, CardHeader, CardTitle, CardBody, Badge, statusBadge, EmptyState }
 import { Spinner } from '@/components/ui/LoadingSpinner'
 import { Avatar } from '@/components/ui/Avatar'
 import Button from '@/components/ui/Button'
+import PendingConnections from '@/components/PendingConnections'
 import toast from 'react-hot-toast'
 import { format } from 'date-fns'
 import styles from './OfficialHome.module.css'
@@ -45,33 +46,8 @@ export default function OfficialHome() {
         </p>
       </div>
 
-      {/* Roster invitations from schedulers */}
-      {rosterInvites.length > 0 && (
-        <Card>
-          <CardHeader>
-            <CardTitle>🤝 Roster Invitations</CardTitle>
-            <Badge variant="amber">{rosterInvites.length} pending</Badge>
-          </CardHeader>
-          <CardBody noPadding>
-            {rosterInvites.map(inv => (
-              <div key={inv.id} className={styles.inviteRow}>
-                <Avatar name={inv.fromName ?? 'Scheduler'} size="md" />
-                <div className={styles.inviteInfo}>
-                  <div className={styles.inviteName}>{inv.fromName ?? 'A Scheduler'}</div>
-                  <div className={styles.inviteSub}>
-                    Wants to add you to their officiating roster
-                    {inv.note && <span className={styles.inviteNote}> · "{inv.note}"</span>}
-                  </div>
-                </div>
-                <div className={styles.inviteActions}>
-                  <Button size="sm" variant="teal" onClick={() => accept(inv.id)}>Accept</Button>
-                  <Button size="sm" variant="ghost" onClick={() => decline(inv.id)}>Decline</Button>
-                </div>
-              </div>
-            ))}
-          </CardBody>
-        </Card>
-      )}
+      {/* Pending connections — roster invites from schedulers */}
+      <PendingConnections filterTypes={['scheduler-official']} />
 
       {/* Pending game requests banner */}
       {pending.length > 0 && (

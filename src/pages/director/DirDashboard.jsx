@@ -5,12 +5,12 @@ import { useConnections } from '@/hooks/useConnections'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState } from '@/components/ui'
 import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
+import PendingConnections from '@/components/PendingConnections'
 import styles from './DirDashboard.module.css'
 
 export default function DirDashboard() {
   const { profile } = useAuth()
   const { groups, loading } = useGameGroups()
-  const { pendingIncoming, accept, decline } = useConnections()
   const navigate = useNavigate()
 
   const totalGames  = groups.reduce((s, g) => s + (g.totalGames  ?? 0), 0)
@@ -44,41 +44,10 @@ export default function DirDashboard() {
         ))}
       </div>
 
-      <div className={styles.grid}>
-        {/* Scheduler connection requests (incoming from schedulers wanting to connect) */}
-        <Card>
-          <CardHeader>
-            <CardTitle>Scheduler Requests</CardTitle>
-            {pendingIncoming.length > 0 && (
-              <Badge variant="amber">{pendingIncoming.length} pending</Badge>
-            )}
-          </CardHeader>
-          <CardBody noPadding>
-            {pendingIncoming.length === 0 ? (
-              <EmptyState
-                icon="🤝"
-                title="No pending requests"
-                message="Schedulers you invite will appear here."
-              />
-            ) : (
-              pendingIncoming.map(conn => (
-                <div key={conn.id} className={styles.connRow}>
-                  <div className={styles.connIcon}>📋</div>
-                  <div className={styles.connInfo}>
-                    <div className={styles.connName}>{conn.fromName ?? 'Scheduler'}</div>
-                    <div className={styles.connOrg}>{conn.organization ?? 'Scheduling Organization'}</div>
-                  </div>
-                  <div className={styles.connActions}>
-                    <Button variant="teal" size="sm" onClick={() => accept(conn.id)}>Accept</Button>
-                    <Button variant="ghost" size="sm" onClick={() => decline(conn.id)}>Decline</Button>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardBody>
-        </Card>
+      {/* Pending connections from schedulers */}
+      <PendingConnections filterTypes={['director-scheduler', 'scheduler-director']} />
 
-        {/* Active events */}
+      <div className={styles.grid}>
         <Card>
           <CardHeader>
             <CardTitle>My Events</CardTitle>

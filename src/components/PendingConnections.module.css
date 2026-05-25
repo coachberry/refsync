@@ -1,0 +1,15 @@
+.row {
+  display: flex; align-items: flex-start; gap: 13px;
+  padding: 14px 18px; border-bottom: 1px solid var(--color-border);
+  transition: background .1s;
+}
+.row:last-child { border-bottom: none; }
+.row:hover { background: var(--color-surface-2); }
+
+.info    { flex: 1; min-width: 0; }
+.name    { font-size: 14px; font-weight: 700; margin-bottom: 2px; }
+.action  { font-size: 13px; color: var(--color-muted); }
+.sub     { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.note    { font-size: 12px; color: var(--color-text-2); font-style: italic; margin-top: 4px; background: var(--color-surface-2); padding: 5px 9px; border-radius: 6px; border-left: 3px solid var(--color-border); }
+
+.actions { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }

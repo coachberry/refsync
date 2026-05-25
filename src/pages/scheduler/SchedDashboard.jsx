@@ -1,33 +1,32 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { useSubRoles } from '@/hooks/useSubRoles'
 import { useGameGroups } from '@/hooks/useGameGroups'
-import { useConnections } from '@/hooks/useConnections'
-import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState } from '@/components/ui'
+import { db } from '@/lib/firebase'
+import { collection, query, where, getDocs, addDoc, limit, serverTimestamp } from 'firebase/firestore'
+import { sendConnectionRequest } from '@/services/firestore'
+import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
 import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
 import { Avatar } from '@/components/ui/Avatar'
+import { Input, Textarea } from '@/components/ui/Input'
+import PendingConnections from '@/components/PendingConnections'
 import styles from './SchedDashboard.module.css'
 
 export default function SchedDashboard() {
-  const { profile } = useAuth()
+  const { user, profile } = useAuth()
   const { isRefScheduler, isSKScheduler, isBothScheduler } = useSubRoles()
   const { groups, loading: groupsLoading } = useGameGroups()
-  const { pendingIncoming, accept, decline } = useConnections()
   const navigate = useNavigate()
+  const [showFindDirector, setShowFindDirector] = useState(false)
 
   const totalOpen  = groups.reduce((s, g) => s + ((g.totalGames ?? 0) - (g.filledGames ?? 0)), 0)
   const totalGames = groups.reduce((s, g) => s + (g.totalGames ?? 0), 0)
 
-  // Split groups by type if both roles
-  const refGroups = groups.filter(g => !g.type || g.type === 'referee' || g.type === 'both')
-  const skGroups  = groups.filter(g => g.type === 'scorekeeper' || g.type === 'both')
-
   const roleLabel = isBothScheduler
     ? 'Referee & Scorekeeper Scheduler'
-    : isRefScheduler
-    ? 'Referee Scheduler'
-    : 'Scorekeeper Scheduler'
+    : isRefScheduler ? 'Referee Scheduler' : 'Scorekeeper Scheduler'
 
   return (
     <div className={styles.page}>
@@ -36,9 +35,10 @@ export default function SchedDashboard() {
           <h1 className={styles.title}>Dashboard</h1>
           <p className={styles.sub}>Welcome back, {profile?.displayName?.split(' ')[0]} · {roleLabel}</p>
         </div>
-        <Button variant="primary" onClick={() => navigate('/scheduler/groups')}>
-          View Game Groups
-        </Button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <Button variant="secondary" onClick={() => setShowFindDirector(true)}>🔍 Find a Director</Button>
+          <Button variant="primary"   onClick={() => navigate('/scheduler/groups')}>View Game Groups</Button>
+        </div>
       </div>
 
       {/* Stats */}
@@ -49,38 +49,48 @@ export default function SchedDashboard() {
         <StatCard icon="👥" label="Roster Size"     value="—" />
       </div>
 
-      {/* Connection requests */}
-      <ConnectionRequests pending={pendingIncoming} onAccept={accept} onDecline={decline} />
+      {/* Pending connections — directors, officials */}
+      <PendingConnections filterTypes={['director-scheduler', 'scheduler-director', 'scheduler-official']} />
 
-      {/* Referee Scheduler section */}
-      {isRefScheduler && (
-        <>
-          {isBothScheduler && <SectionDivider label="🏒 Referee Scheduler" />}
-          <GameGroupsCard
-            title={isBothScheduler ? 'Referee Game Groups' : 'Active Game Groups'}
-            groups={isBothScheduler ? refGroups : groups}
-            loading={groupsLoading}
-            onAssign={() => navigate('/scheduler/assign')}
-            onViewAll={() => navigate('/scheduler/groups')}
-            emptyMessage="Accept a connection from a game director to get started with referee scheduling."
-          />
-        </>
-      )}
+      {/* Recent game groups */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Recent Game Groups</CardTitle>
+          <Button size="sm" variant="ghost" onClick={() => navigate('/scheduler/groups')}>View all</Button>
+        </CardHeader>
+        <CardBody noPadding>
+          {groupsLoading ? (
+            <div className={styles.center}><Spinner /></div>
+          ) : groups.length === 0 ? (
+            <EmptyState icon="📋" title="No game groups yet"
+              message="Game groups will appear here when directors assign you to events." />
+          ) : (
+            groups.slice(0, 5).map(g => (
+              <div key={g.id} className={styles.groupRow}>
+                <div className={styles.groupInfo}>
+                  <div className={styles.groupName}>{g.name}</div>
+                  <div className={styles.groupMeta}>{g.directorName ?? 'Director'} · {g.sport ?? 'Hockey'}</div>
+                </div>
+                <div className={styles.groupFill}>
+                  <div className={styles.fillBar}>
+                    <div className={styles.fillProgress}
+                      style={{ width: `${g.totalGames ? Math.round((g.filledGames / g.totalGames) * 100) : 0}%` }} />
+                  </div>
+                  <div className={styles.fillText}>{g.filledGames ?? 0}/{g.totalGames ?? 0}</div>
+                </div>
+                <Button size="sm" variant="secondary" onClick={() => navigate('/scheduler/assign')}>Assign</Button>
+              </div>
+            ))
+          )}
+        </CardBody>
+      </Card>
 
-      {/* Scorekeeper Scheduler section */}
-      {isSKScheduler && (
-        <>
-          {isBothScheduler && <SectionDivider label="📋 Scorekeeper Scheduler" />}
-          <GameGroupsCard
-            title={isBothScheduler ? 'Scorekeeper Game Groups' : 'Active Game Groups'}
-            groups={isBothScheduler ? skGroups : groups}
-            loading={groupsLoading}
-            onAssign={() => navigate('/scheduler/assign')}
-            onViewAll={() => navigate('/scheduler/groups')}
-            emptyMessage="Accept a connection from a game director to get started with scorekeeper scheduling."
-          />
-        </>
-      )}
+      <FindDirectorModal
+        open={showFindDirector}
+        onClose={() => setShowFindDirector(false)}
+        schedulerUid={user?.uid}
+        schedulerName={profile?.displayName}
+      />
     </div>
   )
 }
@@ -96,80 +106,164 @@ function StatCard({ icon, label, value }) {
   )
 }
 
-// ── Section divider ───────────────────────────────────────────────────────────
-function SectionDivider({ label }) {
-  return (
-    <div className={styles.sectionDivider}>
-      <span className={styles.sectionDividerBefore} />
-      <span className={styles.sectionDividerLabel}>{label}</span>
-      <span className={styles.sectionDividerAfter} />
-    </div>
-  )
-}
+// ── Find Director Modal ───────────────────────────────────────────────────────
+function FindDirectorModal({ open, onClose, schedulerUid, schedulerName }) {
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searching, setSearching]     = useState(false)
+  const [results, setResults]         = useState([])
+  const [searched, setSearched]       = useState(false)
+  const [selected, setSelected]       = useState(null)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [note, setNote]               = useState('')
+  const [saving, setSaving]           = useState(false)
 
-// ── Connection requests card ──────────────────────────────────────────────────
-function ConnectionRequests({ pending, onAccept, onDecline }) {
-  if (!pending.length) return null
+  const handleSearch = async () => {
+    if (!searchQuery.trim()) { return }
+    setSearching(true); setResults([]); setSearched(false); setSelected(null)
+    try {
+      const term = searchQuery.trim().toLowerCase()
+      const snap = await getDocs(query(
+        collection(db, 'users'),
+        where('roles', 'array-contains', 'director'),
+        where('email', '>=', term),
+        where('email', '<=', term + '\uf8ff'),
+        limit(10)
+      ))
+      const found = snap.docs
+        .filter(d => d.id !== schedulerUid)
+        .map(d => ({ id: d.id, ...d.data() }))
+      setResults(found); setSearched(true)
+    } catch {
+      // Fallback: exact email match
+      try {
+        const snap = await getDocs(query(collection(db, 'users'), where('email', '==', searchQuery.trim().toLowerCase())))
+        const found = snap.docs.filter(d => d.id !== schedulerUid && (d.data().roles ?? []).includes('director')).map(d => ({ id: d.id, ...d.data() }))
+        setResults(found); setSearched(true)
+      } catch { }
+    } finally { setSearching(false) }
+  }
+
+  const handleConnect = async () => {
+    if (!selected) return
+    setSaving(true)
+    try {
+      await sendConnectionRequest(schedulerUid, selected.id, 'scheduler-director', {
+        fromName: schedulerName,
+        toName:   selected.displayName,
+        note,
+      })
+      await addDoc(collection(db, 'notifications'), {
+        uid:       selected.id,
+        type:      'connection',
+        title:     '🤝 Scheduler Connection Request',
+        message:   `${schedulerName} wants to connect with you as a scheduler`,
+        read:      false,
+        link:      '/director',
+        createdAt: serverTimestamp(),
+      })
+      toast_success(`Request sent to ${selected.displayName}!`)
+      reset()
+    } catch { } finally { setSaving(false) }
+  }
+
+  const handleInvite = async () => {
+    if (!inviteEmail.trim()) return
+    setSaving(true)
+    try {
+      // Check if email exists
+      const snap = await getDocs(query(collection(db, 'users'), where('email', '==', inviteEmail.trim().toLowerCase())))
+      if (!snap.empty) {
+        const dir = { id: snap.docs[0].id, ...snap.docs[0].data() }
+        setSelected(dir)
+        await sendConnectionRequest(schedulerUid, dir.id, 'scheduler-director', { fromName: schedulerName, toName: dir.displayName, note })
+        await addDoc(collection(db, 'notifications'), {
+          uid: dir.id, type: 'connection', title: '🤝 Scheduler Connection Request',
+          message: `${schedulerName} wants to connect with you as a scheduler`,
+          read: false, link: '/director', createdAt: serverTimestamp(),
+        })
+        toast_success(`Request sent to ${dir.displayName}!`)
+      } else {
+        await sendConnectionRequest(schedulerUid, '__invite__', 'scheduler-director', { fromName: schedulerName, inviteEmail: inviteEmail.trim(), note, status: 'invited' })
+        toast_success(`Invitation sent to ${inviteEmail}`)
+      }
+      reset()
+    } catch { } finally { setSaving(false) }
+  }
+
+  // Simple toast since we can't import toast here without issues
+  const toast_success = (msg) => {
+    const t = document.createElement('div')
+    t.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#1a1a2e;color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:600;z-index:9999;box-shadow:0 4px 20px rgba(0,0,0,.3)'
+    t.textContent = '✅ ' + msg; document.body.appendChild(t)
+    setTimeout(() => t.remove(), 3000)
+  }
+
+  const reset = () => {
+    setSearchQuery(''); setResults([]); setSearched(false)
+    setSelected(null); setInviteEmail(''); setNote(''); onClose()
+  }
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Connection Requests</CardTitle>
-        <Badge variant="amber">{pending.length} pending</Badge>
-      </CardHeader>
-      <CardBody noPadding>
-        {pending.map(conn => (
-          <div key={conn.id} className={styles.connRow}>
-            <Avatar name={conn.fromName ?? 'Director'} size="md" />
-            <div className={styles.connInfo}>
-              <div className={styles.connName}>{conn.fromName ?? 'Tournament Director'}</div>
-              <div className={styles.connOrg}>{conn.groupName ?? conn.organization ?? 'Game request'}</div>
-              {conn.gameCount > 0 && <div className={styles.connGames}>{conn.gameCount} games</div>}
-            </div>
-            <div className={styles.connActions}>
-              <Button variant="teal"  size="sm" onClick={() => onAccept(conn.id)}>Accept</Button>
-              <Button variant="ghost" size="sm" onClick={() => onDecline(conn.id)}>Decline</Button>
-            </div>
+    <Modal open={open} onClose={reset} title="Find a Game Director" size="md"
+      footer={<Button variant="ghost" onClick={reset}>Cancel</Button>}
+    >
+      <div style={{ marginBottom: 16 }}>
+        <div style={sLabelSt}>Search by Name or Email</div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input style={{ ...iSt, flex: 1 }} placeholder="Search directors…"
+            value={searchQuery} onChange={e => { setSearchQuery(e.target.value); setSearched(false) }}
+            onKeyDown={e => e.key === 'Enter' && handleSearch()} />
+          <Button variant="secondary" loading={searching} onClick={handleSearch}>Search</Button>
+        </div>
+        {searched && results.length === 0 && (
+          <div style={{ fontSize: 13, color: 'var(--color-muted)', marginTop: 10 }}>
+            No directors found. Try their email below.
           </div>
-        ))}
-      </CardBody>
-    </Card>
+        )}
+        {results.length > 0 && (
+          <div style={{ marginTop: 10, display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {results.map(u => {
+              const isSel = selected?.id === u.id
+              return (
+                <div key={u.id} onClick={() => setSelected(isSel ? null : u)} style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 13px',
+                  borderRadius: 'var(--radius)', cursor: 'pointer', transition: 'all .13s',
+                  border: `2px solid ${isSel ? 'var(--blue)' : 'var(--color-border)'}`,
+                  background: isSel ? 'rgba(37,99,235,.05)' : 'var(--color-surface)',
+                }}>
+                  <Avatar name={u.displayName} src={u.photoURL} size="sm" />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 14, fontWeight: 600 }}>{u.displayName}</div>
+                    <div style={{ fontSize: 12, color: 'var(--color-muted)' }}>{u.email}</div>
+                  </div>
+                  {isSel && <span style={{ color: 'var(--blue)', fontWeight: 700, fontSize: 13 }}>✓</span>}
+                </div>
+              )
+            })}
+          </div>
+        )}
+        {selected && (
+          <div style={{ marginTop: 14 }}>
+            <Textarea label="Note (optional)" placeholder="Hi, I'm a scorekeeper scheduler in Nashville…" value={note} onChange={e => setNote(e.target.value)} rows={2} />
+            <Button variant="primary" fullWidth loading={saving} onClick={handleConnect}>
+              Send Connection Request to {selected.displayName}
+            </Button>
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, margin: '16px 0' }}>
+        <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+        <span style={{ fontSize: 12, color: 'var(--color-muted)', fontWeight: 600 }}>or invite by email</span>
+        <div style={{ flex: 1, height: 1, background: 'var(--color-border)' }} />
+      </div>
+
+      <Input label="Director's Email" placeholder="director@example.com" value={inviteEmail} onChange={e => setInviteEmail(e.target.value)} />
+      {!selected && <Textarea label="Note (optional)" placeholder="Hi, I'm a scheduler looking to work your events…" value={note} onChange={e => setNote(e.target.value)} rows={2} />}
+      <Button variant="secondary" fullWidth loading={saving} onClick={handleInvite}>Send Invite</Button>
+    </Modal>
   )
 }
 
-// ── Game groups card ──────────────────────────────────────────────────────────
-function GameGroupsCard({ title, groups, loading, onAssign, onViewAll, emptyMessage }) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <Button size="sm" variant="ghost" onClick={onViewAll}>View all</Button>
-      </CardHeader>
-      <CardBody noPadding>
-        {loading ? (
-          <div className={styles.center}><Spinner /></div>
-        ) : groups.length === 0 ? (
-          <EmptyState icon="📋" title="No game groups yet" message={emptyMessage} />
-        ) : (
-          groups.slice(0, 5).map(g => (
-            <div key={g.id} className={styles.groupRow}>
-              <div className={styles.groupInfo}>
-                <div className={styles.groupName}>{g.name}</div>
-                <div className={styles.groupMeta}>{g.directorName ?? 'Director'} · {g.sport ?? 'Hockey'}</div>
-              </div>
-              <div className={styles.groupFill}>
-                <div className={styles.fillBar}>
-                  <div
-                    className={styles.fillProgress}
-                    style={{ width: `${g.totalGames ? Math.round((g.filledGames / g.totalGames) * 100) : 0}%` }}
-                  />
-                </div>
-                <div className={styles.fillText}>{g.filledGames ?? 0}/{g.totalGames ?? 0}</div>
-              </div>
-              <Button size="sm" variant="secondary" onClick={onAssign}>Assign</Button>
-            </div>
-          ))
-        )}
-      </CardBody>
-    </Card>
-  )
-}
+const sLabelSt = { fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.6px', color: 'var(--color-muted)', marginBottom: 8 }
+const iSt = { width: '100%', padding: '8px 10px', borderRadius: 8, border: '1.5px solid var(--color-border)', background: 'var(--color-surface)', fontSize: 13, fontFamily: 'var(--font-body)', outline: 'none', boxSizing: 'border-box' }

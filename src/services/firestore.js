@@ -183,13 +183,36 @@ export const getRosterAvailability = async (officialIds, date) => {
 }
 
 // ─── CONNECTIONS ──────────────────────────────────────────────────────────────
-export const sendConnectionRequest = (fromUid, toUid, type, meta = {}) =>
-  addDoc(collection(db, COLS.connections), {
+export const sendConnectionRequest = async (fromUid, toUid, type, meta = {}) => {
+  const connRef = await addDoc(collection(db, COLS.connections), {
     fromUid, toUid, type,
     status: 'pending',
     ...meta,
     createdAt: serverTimestamp(),
   })
+
+  // Send in-app notification if toUid is a real user (not __invite__)
+  if (toUid && toUid !== '__invite__') {
+    const typeLabels = {
+      'scheduler-official': { title: '🤝 Roster Invitation', msg: `${meta.fromName ?? 'A scheduler'} invited you to join their officiating roster`, link: '/official' },
+      'director-scheduler': { title: '🤝 Scheduler Request', msg: `${meta.fromName ?? 'A director'} wants to connect with you as a scheduler`, link: '/scheduler' },
+      'scheduler-director': { title: '🤝 Connection Request', msg: `${meta.fromName ?? 'A scheduler'} wants to connect with you`, link: '/director' },
+    }
+    const notif = typeLabels[type] ?? { title: '🤝 Connection Request', msg: `${meta.fromName ?? 'Someone'} wants to connect with you`, link: '/profile' }
+    await addDoc(collection(db, 'notifications'), {
+      uid:       toUid,
+      type:      'connection',
+      title:     notif.title,
+      message:   notif.msg,
+      read:      false,
+      link:      notif.link,
+      connectionId: connRef.id,
+      createdAt: serverTimestamp(),
+    })
+  }
+
+  return connRef
+}
 
 export const respondToConnection = (connectionId, status) =>
   updateDoc(doc(db, COLS.connections, connectionId), {
