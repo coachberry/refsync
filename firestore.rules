@@ -1,19 +1,133 @@
 rules_version = '2';
-
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // This rule allows anyone with your Firestore database reference to view, edit,
-    // and delete all data in your Firestore database. It is useful for getting
-    // started, but it is configured to expire after 30 days because it
-    // leaves your app open to attackers. At that time, all client
-    // requests to your Firestore database will be denied.
-    //
-    // Make sure to write security rules for your app before that time, or else
-    // all client requests to your Firestore database will be denied until you Update
-    // your rules
-    match /{document=**} {
-      allow read, write: if request.time < timestamp.date(2026, 6, 21);
+    // ── Helpers ───────────────────────────────────────────────────────────────
+    function isAuth()          { return request.auth != null; }
+    function isOwner(uid)      { return request.auth.uid == uid; }
+    function hasRole(role)     { return role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
+    function isAdmin()         { return request.auth.token.admin == true; }
+
+    // ── Users ─────────────────────────────────────────────────────────────────
+    match /users/{uid} {
+      allow read:   if isAuth();
+      allow create: if isOwner(uid);
+      allow update: if isOwner(uid);
+      allow delete: if false;
+    }
+
+    // ── Game Groups ───────────────────────────────────────────────────────────
+    match /gameGroups/{groupId} {
+      allow read:   if isAuth();
+      allow create: if isAuth() && hasRole('director');
+      allow update: if isAuth() && (
+        resource.data.directorId == request.auth.uid ||
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.refSchedulerId == request.auth.uid ||
+        resource.data.skSchedulerId == request.auth.uid
+      );
+      allow delete: if isAuth() && resource.data.directorId == request.auth.uid;
+    }
+
+    // ── Games ─────────────────────────────────────────────────────────────────
+    match /games/{gameId} {
+      allow read:   if isAuth();
+      allow create: if isAuth() && hasRole('director');
+      allow update: if isAuth() && (
+        resource.data.directorId == request.auth.uid ||
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.skSchedulerId == request.auth.uid ||
+        request.auth.uid in resource.data.assignedUids
+      );
+      allow delete: if isAuth() && resource.data.directorId == request.auth.uid;
+    }
+
+    // ── Connections ───────────────────────────────────────────────────────────
+    match /connections/{connectionId} {
+      allow read:   if isAuth() && (
+        resource.data.fromUid == request.auth.uid ||
+        resource.data.toUid   == request.auth.uid
+      );
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.fromUid == request.auth.uid ||
+        resource.data.toUid   == request.auth.uid
+      );
+      allow delete: if isAuth() && (
+        resource.data.fromUid == request.auth.uid ||
+        resource.data.toUid   == request.auth.uid
+      );
+    }
+
+    // ── Invoices ──────────────────────────────────────────────────────────────
+    match /invoices/{invoiceId} {
+      allow read:   if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId  == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId  == request.auth.uid
+      );
+      allow delete: if isAuth() && resource.data.schedulerId == request.auth.uid;
+    }
+
+    // ── Payments ──────────────────────────────────────────────────────────────
+    match /payments/{paymentId} {
+      allow read:   if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.officialId  == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && resource.data.schedulerId == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ── Notifications ─────────────────────────────────────────────────────────
+    match /notifications/{notifId} {
+      allow read:   if isAuth() && resource.data.uid == request.auth.uid;
+      allow create: if isAuth();
+      allow update: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+    }
+
+    // ── Availability ──────────────────────────────────────────────────────────
+    match /availability/{blockId} {
+      allow read:   if isAuth();
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+    }
+
+    // ── Expenses ──────────────────────────────────────────────────────────────
+    match /expenses/{expenseId} {
+      allow read:   if isAuth() && resource.data.uid == request.auth.uid;
+      allow create: if isAuth() && request.resource.data.uid == request.auth.uid;
+      allow update: if isAuth() && resource.data.uid == request.auth.uid;
+      allow delete: if isAuth() && resource.data.uid == request.auth.uid;
+    }
+
+    // ── News ──────────────────────────────────────────────────────────────────
+    match /news/{newsId} {
+      allow read:   if isAuth();
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && resource.data.schedulerId == request.auth.uid;
+      allow delete: if isAuth() && resource.data.schedulerId == request.auth.uid;
+    }
+
+    // ── Assignments ───────────────────────────────────────────────────────────
+    match /assignments/{assignmentId} {
+      allow read:   if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.officialId  == request.auth.uid
+      );
+      allow create: if isAuth() && hasRole('scheduler');
+      allow update: if isAuth() && (
+        resource.data.schedulerId == request.auth.uid ||
+        resource.data.officialId  == request.auth.uid
+      );
+      allow delete: if false;
     }
   }
 }

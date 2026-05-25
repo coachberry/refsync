@@ -1,0 +1,51 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { margin-bottom: 4px; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 3px; }
+
+.postList { display: flex; flex-direction: column; gap: 12px; }
+
+.postCard {
+  background: var(--color-surface);
+  border: 1.5px solid var(--color-border);
+  border-left: 4px solid var(--post-color, var(--blue));
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  box-shadow: var(--shadow-sm);
+}
+.pinned { background: rgba(37,99,235,.02); }
+.urgent {
+  border-color: var(--red) !important;
+  background: rgba(204,31,31,.03) !important;
+  animation: pulse 2s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(204,31,31,.15); }
+  50%       { box-shadow: 0 0 0 6px rgba(204,31,31,0); }
+}
+
+.pinnedBanner {
+  font-size: 11px; font-weight: 700; color: var(--blue);
+  text-transform: uppercase; letter-spacing: .6px;
+  margin-bottom: 10px;
+}
+
+.postHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; margin-bottom: 10px; flex-wrap: wrap;
+}
+.postType {
+  font-size: 11.5px; font-weight: 700;
+  padding: 3px 10px; border-radius: 20px;
+}
+.postTime { font-size: 12px; color: var(--color-muted); }
+
+.postTitle { font-family: var(--font-display); font-size: 17px; font-weight: 700; margin-bottom: 8px; }
+.postBody  { font-size: 13.5px; line-height: 1.6; color: var(--color-text-2); white-space: pre-wrap; margin-bottom: 12px; }
+
+.postFrom {
+  display: flex; align-items: center; gap: 7px;
+  font-size: 12px; color: var(--color-muted); font-weight: 600;
+  padding-top: 10px; border-top: 1px solid var(--color-border);
+}

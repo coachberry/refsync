@@ -264,3 +264,43 @@ exports.stripeWebhook = onRequest(
     }
   }
 )
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 6. SEND EMAIL NOTIFICATION
+//    Uses Resend API for transactional emails
+//    Set RESEND_API_KEY secret: firebase functions:secrets:set RESEND_API_KEY
+// ─────────────────────────────────────────────────────────────────────────────
+const RESEND_API_KEY = defineSecret('RESEND_API_KEY')
+
+exports.sendEmailNotification = onRequest(
+  { secrets: [RESEND_API_KEY] },
+  async (req, res) => withCors(req, res, async () => {
+    try {
+      const { to, subject, html, type } = req.body
+      if (!to || !subject || !html) {
+        res.status(400).json({ error: 'to, subject, html required' }); return
+      }
+
+      const response = await fetch('https://api.resend.com/emails', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${RESEND_API_KEY.value()}`,
+        },
+        body: JSON.stringify({
+          from: 'RefSync <notifications@refsync-nine.vercel.app>',
+          to:   [to],
+          subject,
+          html,
+        }),
+      })
+
+      const data = await response.json()
+      if (!response.ok) throw new Error(data.message ?? 'Email send failed')
+      res.json({ id: data.id })
+    } catch (err) {
+      console.error('sendEmailNotification error:', err)
+      res.status(500).json({ error: err.message })
+    }
+  })
+)

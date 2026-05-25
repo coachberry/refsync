@@ -21,6 +21,8 @@ import OfficialHome         from '@/pages/official/OfficialHome'
 import OfficialSchedule     from '@/pages/official/OfficialSchedule'
 import OfficialAvailability from '@/pages/official/OfficialAvailability'
 import OfficialProfile      from '@/pages/official/OfficialProfile'
+import OfficialNews         from '@/pages/official/OfficialNews'
+import OfficialExpenses     from '@/pages/official/OfficialExpenses'
 
 // Scheduler pages
 import SchedDashboard  from '@/pages/scheduler/SchedDashboard'
@@ -28,6 +30,7 @@ import SchedAssign     from '@/pages/scheduler/SchedAssign'
 import SchedRoster     from '@/pages/scheduler/SchedRoster'
 import SchedGameGroups from '@/pages/scheduler/SchedGameGroups'
 import SchedFinance    from '@/pages/scheduler/SchedFinance'
+import SchedNews       from '@/pages/scheduler/SchedNews'
 
 // Director pages
 import DirDashboard  from '@/pages/director/DirDashboard'
@@ -69,9 +72,9 @@ export default function App() {
           <Route path="/official/schedule"     element={<OfficialSchedule />} />
           <Route path="/official/availability" element={<OfficialAvailability />} />
           <Route path="/official/inbox"        element={<Navigate to="/profile/messages" replace />} />
-          <Route path="/official/news"         element={<ComingSoon role="official" />} />
+          <Route path="/official/news"         element={<OfficialNews />} />
           <Route path="/official/profile"      element={<OfficialProfile />} />
-          <Route path="/official/expenses"     element={<ComingSoon role="official" />} />
+          <Route path="/official/expenses"     element={<OfficialExpenses />} />
         </Route>
       </Route>
 
@@ -84,7 +87,7 @@ export default function App() {
           <Route path="/scheduler/roster"    element={<SchedRoster />} />
           <Route path="/scheduler/finance"   element={<SchedFinance />} />
           <Route path="/scheduler/messages"  element={<Navigate to="/profile/messages" replace />} />
-          <Route path="/scheduler/news"      element={<ComingSoon role="scheduler" />} />
+          <Route path="/scheduler/news"      element={<SchedNews />} />
           <Route path="/scheduler/settings"  element={<ComingSoon role="scheduler" />} />
         </Route>
       </Route>
