@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useGameGroups } from '@/hooks/useGameGroups'
 import { useRoster } from '@/hooks/useRoster'
 import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, addDoc, updateDoc, doc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, getDocs, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from 'firebase/firestore'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
 import { Input, Textarea, Select, FormRow } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
@@ -215,15 +215,44 @@ function OverviewTab({ invoices, payments, roster }) {
 // ── Invoices tab ──────────────────────────────────────────────────────────────
 function InvoicesTab({ invoices, onRefresh, schedulerId }) {
   const [updatingId, setUpdatingId] = useState(null)
+  const [deletingId, setDeletingId] = useState(null)
 
   const markPaid = async (invoice) => {
-    setUpdatingId(invoice.id)
+    setUpdatingId(invoice.id + 'paid')
     try {
       await updateDoc(doc(db, 'invoices', invoice.id), { status: 'paid', paidAt: serverTimestamp() })
       toast.success('Invoice marked as paid')
       onRefresh()
     } catch { toast.error('Failed to update invoice') }
     finally { setUpdatingId(null) }
+  }
+
+  const markUnpaid = async (invoice) => {
+    setUpdatingId(invoice.id + 'unpaid')
+    try {
+      await updateDoc(doc(db, 'invoices', invoice.id), { status: 'sent', paidAt: null })
+      toast.success('Invoice marked as unpaid')
+      onRefresh()
+    } catch { toast.error('Failed to update invoice') }
+    finally { setUpdatingId(null) }
+  }
+
+  const deleteInvoice = async (invoice) => {
+    if (!window.confirm(`Delete invoice ${invoice.invoiceNumber ?? invoice.id.slice(0,6).toUpperCase()}?\n\nThis will remove the invoice from both your Finance page and the director's Invoices page.`)) return
+    setDeletingId(invoice.id)
+    try {
+      // Delete the invoice
+      await deleteDoc(doc(db, 'invoices', invoice.id))
+      // If group had this as unpaid, clear the flag (best-effort)
+      if (invoice.groupId) {
+        updateDoc(doc(db, 'gameGroups', invoice.groupId), { hasUnpaidInvoice: false }).catch(() => {})
+      }
+      toast.success('Invoice deleted')
+      onRefresh()
+    } catch (err) {
+      console.error(err)
+      toast.error('Failed to delete invoice: ' + (err.message ?? err))
+    } finally { setDeletingId(null) }
   }
 
   if (invoices.length === 0) return (
@@ -252,11 +281,18 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
                 <td>
                   <div className={styles.rowActions}>
                     {inv.status !== 'paid' && (
-                      <Button size="sm" variant="teal" loading={updatingId === inv.id} onClick={() => markPaid(inv)}>
+                      <Button size="sm" variant="teal" loading={updatingId === inv.id + 'paid'} onClick={() => markPaid(inv)}>
                         Mark Paid
                       </Button>
                     )}
-                    <Button size="sm" variant="ghost">View</Button>
+                    {inv.status === 'paid' && (
+                      <Button size="sm" variant="ghost" loading={updatingId === inv.id + 'unpaid'} onClick={() => markUnpaid(inv)}>
+                        Mark Unpaid
+                      </Button>
+                    )}
+                    <Button size="sm" variant="danger" loading={deletingId === inv.id} onClick={() => deleteInvoice(inv)}>
+                      Delete
+                    </Button>
                   </div>
                 </td>
               </tr>
