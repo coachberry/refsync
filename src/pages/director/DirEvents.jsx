@@ -510,10 +510,27 @@ function AddGamesModal({ open, onClose, group }) {
             errors.push(`Row ${i + 2}: unrecognized date format "${rawDate}" — use MM-DD-YYYY`); return
           }
 
+          // Parse time — accept 12hr (6:00 PM, 6:00pm, 6pm) or 24hr (18:00)
+          let parsedTime = '12:00'
+          if (gameTime) {
+            const t = gameTime.trim()
+            const hr24 = t.match(/^(\d{1,2}):(\d{2})$/)
+            const hr12 = t.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)$/i)
+            if (hr24) {
+              parsedTime = `${hr24[1].padStart(2,'0')}:${hr24[2]}`
+            } else if (hr12) {
+              let h = parseInt(hr12[1])
+              const mins = hr12[2] ?? '00'
+              const ampm = hr12[3].toLowerCase()
+              if (ampm === 'pm' && h !== 12) h += 12
+              if (ampm === 'am' && h === 12) h = 0
+              parsedTime = `${String(h).padStart(2,'0')}:${mins.padStart(2,'0')}`
+            }
+          }
           const defaultCrew = DEFAULT_CREW[group?.officialsNeeded ?? 'both']
           parsed.push({
             homeTeam, awayTeam, gameDate,
-            gameTime:    gameTime || '12:00',
+            gameTime:    parsedTime,
             venue:       venue || group?.venues?.[0] || '',
             division:    division || '',
             duration:    [1, 1.25, 1.5, 1.75, 2].includes(duration) ? duration : 0,
