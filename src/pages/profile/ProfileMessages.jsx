@@ -12,6 +12,7 @@ import {
 } from '@/services/messaging'
 import { ref, remove } from 'firebase/database'
 import { rtdb } from '@/lib/firebase'
+import { Modal } from '@/components/ui'
 import { Input, Textarea, Select } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { Avatar } from '@/components/ui/Avatar'
