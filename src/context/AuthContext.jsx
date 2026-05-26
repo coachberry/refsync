@@ -20,6 +20,9 @@ export function AuthProvider({ children }) {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, async (firebaseUser) => {
       if (firebaseUser) {
+        // Reset profile/role before loading new user's data
+        setProfile(null)
+        setActiveRole(null)
         setUser(firebaseUser)
         const snap = await getDoc(doc(db, 'users', firebaseUser.uid))
         if (snap.exists()) {
@@ -71,10 +74,21 @@ export function AuthProvider({ children }) {
     return cred.user
   }
 
-  const signIn = (email, password) =>
-    signInWithEmailAndPassword(auth, email, password)
+  const signIn = async (email, password) => {
+    // Clear existing state before signing in as a new user
+    setUser(null)
+    setProfile(null)
+    setActiveRole(null)
+    return signInWithEmailAndPassword(auth, email, password)
+  }
 
-  const logout = () => signOut(auth)
+  const logout = async () => {
+    // Clear state immediately — don't wait for onAuthStateChanged
+    setUser(null)
+    setProfile(null)
+    setActiveRole(null)
+    await signOut(auth)
+  }
 
   const switchRole = (role) => {
     if (profile?.roles?.includes(role)) {
