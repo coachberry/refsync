@@ -203,9 +203,7 @@ export default function OfficialAvailability() {
               const past   = isPast(day)
               const isSel  = selectedDate && isSameDay(day, selectedDate)
               const inMo   = isSameMonth(day, currentMonth)
-              const dotColor = status === 'available_all_day' ? '#00BF63'
-                             : status === 'partial'           ? '#2563eb'
-                             : null
+              const hasEntry = !!availability[ds]
               return (
                 <div key={ds}
                   className={[
@@ -214,22 +212,22 @@ export default function OfficialAvailability() {
                     past    ? styles.pastDay    : '',
                     isToday(day) ? styles.today : '',
                     isSel   ? styles.selected   : '',
+                    !past && inMo && status === 'available_all_day'     ? styles.cellAvail   : '',
+                    !past && inMo && status === 'partial'               ? styles.cellPartial  : '',
+                    !past && inMo && status === 'unavailable_all_day' && hasEntry ? styles.cellUnavail : '',
                   ].join(' ')}
                   onClick={() => handleDayClick(day)}
                 >
                   <span className={styles.calCellDate}>{format(day, 'd')}</span>
-                  {dotColor && !past && (
-                    <span className={styles.calCellDot} style={{ background: isSel ? 'rgba(255,255,255,.9)' : dotColor }} />
-                  )}
                 </div>
               )
             })}
           </div>
 
           <div className={styles.legend}>
-            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--color-border-strong)' }} /><span>Unavailable</span></div>
-            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: '#00BF63' }} /><span>Available all day</span></div>
-            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: '#2563eb' }} /><span>Partial</span></div>
+            <div className={styles.legendItem}><div className={styles.legendBox} style={{ background: 'rgba(255,97,0,.15)', border: '1.5px solid #FF6100' }} /><span>Unavailable</span></div>
+            <div className={styles.legendItem}><div className={styles.legendBox} style={{ background: 'rgba(0,191,99,.15)', border: '1.5px solid #00BF63' }} /><span>Available all day</span></div>
+            <div className={styles.legendItem}><div className={styles.legendBox} style={{ background: 'rgba(37,99,235,.12)', border: '1.5px solid #2563eb' }} /><span>Partial</span></div>
           </div>
         </div>
 

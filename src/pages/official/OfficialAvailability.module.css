@@ -39,11 +39,18 @@
 .today      { font-weight: 700; }
 .selected   { background: var(--orange) !important; color: #fff; }
 .calCellDate { line-height: 1; }
-.calCellDot  { width: 5px; height: 5px; border-radius: 50%; margin-top: 3px; }
+
+.cellAvail   { background: rgba(0,191,99,.15);  border: 1.5px solid #00BF63; }
+.cellPartial { background: rgba(37,99,235,.12); border: 1.5px solid #2563eb; }
+.cellUnavail { background: rgba(255,97,0,.13);  border: 1.5px solid #FF6100; }
+.cellAvail   .calCellDate { color: #00875a; font-weight: 600; }
+.cellPartial .calCellDate { color: #1a4db5; font-weight: 600; }
+.cellUnavail .calCellDate { color: #c24a00; font-weight: 600; }
 
 .legend { display: flex; flex-direction: column; gap: 6px; margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--color-border); }
 .legendItem { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--color-muted); }
 .legendDot  { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.legendBox  { width: 16px; height: 16px; border-radius: 4px; flex-shrink: 0; }
 
 /* ── Day panel ── */
 .dayPanel {
