@@ -88,7 +88,7 @@ export default function SignUp() {
     setLoading(true)
     try {
       await signUp({ ...form, roles: selectedRoles, subRoles: selectedSubRoles })
-      toast.success('Welcome to RefSync!')
+      toast.success('Welcome to GameCrewHQ!')
       navigate(`/${selectedRoles[0]}`, { replace: true })
     } catch (err) {
       toast.error(err.message ?? 'Sign up failed')
@@ -101,7 +101,7 @@ export default function SignUp() {
     <div className={styles.outer}>
       <div className={styles.card} style={{ maxWidth: 480 }}>
         <div className={styles.header}>
-          <div className={styles.logo}>Ref<span style={{ color: 'var(--red)' }}>Sync</span></div>
+          <img src="/logos/GAMECREWHQ-LOGO-LONG-BLKBG-transparent.png" alt="GameCrewHQ" className={styles.logo} />
           <div className={styles.sub}>Hockey Officiating Platform</div>
         </div>
 

@@ -41,7 +41,7 @@ export default function SignIn() {
     <div className={styles.outer}>
       <div className={styles.card} style={{ maxWidth: 420 }}>
         <div className={styles.header}>
-          <div className={styles.logo}>Ref<span style={{ color: 'var(--red)' }}>Sync</span></div>
+          <img src="/logos/GAMECREWHQ-LOGO-LONG-BLKBG-transparent.png" alt="GameCrewHQ" className={styles.logo} />
           <div className={styles.sub}>Hockey Officiating Platform</div>
         </div>
 
