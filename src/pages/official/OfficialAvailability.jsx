@@ -214,7 +214,7 @@ export default function OfficialAvailability() {
                     isSel   ? styles.selected   : '',
                     !past && inMo && status === 'available_all_day'     ? styles.cellAvail   : '',
                     !past && inMo && status === 'partial'               ? styles.cellPartial  : '',
-                    !past && inMo && status === 'unavailable_all_day' && hasEntry ? styles.cellUnavail : '',
+                    !past && inMo && status === 'unavailable_all_day'   ? styles.cellUnavail  : '',
                   ].join(' ')}
                   onClick={() => handleDayClick(day)}
                 >
