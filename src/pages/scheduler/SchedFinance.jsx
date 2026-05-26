@@ -25,6 +25,7 @@ export default function SchedFinance() {
   const [tab, setTab]             = useState('overview')
   const [invoices, setInvoices]   = useState([])
   const [payments, setPayments]   = useState([])
+  const [expenses, setExpenses]   = useState([])
   const [acceptedRfqs, setAcceptedRfqs] = useState([])
   const [loading, setLoading]     = useState(true)
   const [showInvoice, setShowInvoice] = useState(false)
@@ -34,7 +35,6 @@ export default function SchedFinance() {
   useEffect(() => {
     if (!user) return
     fetchFinance()
-    // Load accepted RFQs that don't yet have an invoice
     getDocs(query(collection(db, 'rfqs'),
       where('schedulerUid', '==', user.uid),
       where('status', '==', 'accepted')
@@ -46,12 +46,14 @@ export default function SchedFinance() {
   const fetchFinance = async () => {
     setLoading(true)
     try {
-      const [invSnap, paySnap] = await Promise.all([
+      const [invSnap, paySnap, expSnap] = await Promise.all([
         getDocs(query(collection(db, 'invoices'), where('schedulerId', '==', user.uid))),
         getDocs(query(collection(db, 'payments'), where('schedulerId', '==', user.uid))),
+        getDocs(query(collection(db, 'expenses'), where('schedulerId', '==', user.uid))),
       ])
       setInvoices(invSnap.docs.map(d => ({ id: d.id, ...d.data() })))
       setPayments(paySnap.docs.map(d => ({ id: d.id, ...d.data() })))
+      setExpenses(expSnap.docs.map(d => ({ id: d.id, ...d.data() })))
     } catch { toast.error('Failed to load finance data') }
     finally { setLoading(false) }
   }
@@ -62,10 +64,12 @@ export default function SchedFinance() {
   const totalPaidOut  = payments.reduce((s, p) => s + (p.amount ?? 0), 0)
   const totalOwed     = payments.filter(p => p.status === 'pending').reduce((s, p) => s + (p.amount ?? 0), 0)
 
+  const pendingExpenses = expenses.filter(e => e.status === 'pending').length
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'invoices', label: `Invoices (${invoices.length})` },
     { id: 'payroll',  label: `Payroll (${payments.length})` },
+    { id: 'expenses', label: `Expenses${pendingExpenses > 0 ? ` (${pendingExpenses})` : ''}` },
   ]
 
   return (
@@ -125,6 +129,7 @@ export default function SchedFinance() {
           {tab === 'overview' && <OverviewTab invoices={invoices} payments={payments} roster={roster} />}
           {tab === 'invoices' && <InvoicesTab invoices={invoices} onRefresh={fetchFinance} schedulerId={user?.uid} />}
           {tab === 'payroll'  && <PayrollTab  payments={payments} roster={roster} onRefresh={fetchFinance} schedulerId={user?.uid} />}
+          {tab === 'expenses' && <ExpensesTab expenses={expenses} onRefresh={fetchFinance} schedulerId={user?.uid} />}
         </>
       )}
 
@@ -434,6 +439,88 @@ function PayrollTab({ payments, roster, onRefresh, schedulerId }) {
             </table>
           </CardBody>
         </>
+      )}
+    </Card>
+  )
+}
+
+// ── Expenses tab ──────────────────────────────────────────────────────────────
+function ExpensesTab({ expenses, onRefresh }) {
+  const [updatingId, setUpdatingId] = useState(null)
+
+  const handleReview = async (expense, status, note = '') => {
+    setUpdatingId(expense.id)
+    try {
+      await updateDoc(doc(db, 'expenses', expense.id), {
+        status, reviewNote: note, reviewedAt: serverTimestamp(),
+      })
+      await addDoc(collection(db, 'notifications'), {
+        uid:     expense.officialId,
+        type:    'expense',
+        title:   status === 'approved' ? '✅ Expense Approved' : '❌ Expense Rejected',
+        message: `Your $${expense.amount?.toFixed(2)} ${expense.type} expense has been ${status}.${note ? ` Note: ${note}` : ''}`,
+        read:    false, link: '/official/expenses',
+        createdAt: serverTimestamp(),
+      })
+      toast.success(`Expense ${status}`)
+      onRefresh()
+    } catch { toast.error('Failed to update') }
+    finally { setUpdatingId(null) }
+  }
+
+  const pending  = expenses.filter(e => e.status === 'pending')
+  const reviewed = expenses.filter(e => e.status !== 'pending')
+
+  return (
+    <Card>
+      <div style={{ padding:'10px 16px', background:'var(--ice)', borderBottom:'1px solid var(--color-border)', fontSize:12.5, color:'#1a6a9e' }}>
+        🧾 Officials submit expenses for your review. Approve to add to payroll, or reject with a note.
+      </div>
+      {expenses.length === 0 ? (
+        <CardBody><EmptyState icon="🧾" title="No expenses submitted" message="Officials will submit expenses here for your review." /></CardBody>
+      ) : (
+        <CardBody noPadding>
+          {pending.length > 0 && (
+            <>
+              <div style={{ padding:'10px 16px', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.6px', color:'var(--color-muted)', background:'var(--color-surface-2)', borderBottom:'1px solid var(--color-border)' }}>
+                Pending Review ({pending.length})
+              </div>
+              {pending.map(exp => (
+                <div key={exp.id} style={{ display:'flex', alignItems:'flex-start', gap:12, padding:'14px 16px', borderBottom:'1px solid var(--color-border)' }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:700 }}>{exp.officialName} — {exp.type}</div>
+                    <div style={{ fontSize:13, color:'var(--color-text-2)', margin:'3px 0' }}>{exp.description}</div>
+                    <div style={{ fontSize:12, color:'var(--color-muted)' }}>
+                      {exp.gameLabel ? `${exp.gameLabel} · ` : ''}{exp.miles ? `${exp.miles} miles · ` : ''}
+                      {exp.createdAt?.toDate ? format(exp.createdAt.toDate(), 'MMM d, yyyy') : ''}
+                    </div>
+                    {exp.receiptUrl && <a href={exp.receiptUrl} target="_blank" rel="noreferrer" style={{ fontSize:12, color:'var(--blue)', textDecoration:'none', marginTop:4, display:'inline-block' }}>📎 Receipt</a>}
+                  </div>
+                  <div style={{ fontSize:18, fontWeight:800, fontFamily:'var(--font-display)', color:'var(--orange)', flexShrink:0 }}>${(exp.amount ?? 0).toFixed(2)}</div>
+                  <div style={{ display:'flex', gap:6, flexShrink:0 }}>
+                    <Button size="sm" variant="teal" loading={updatingId === exp.id} onClick={() => handleReview(exp, 'approved')}>✓ Approve</Button>
+                    <Button size="sm" variant="ghost" onClick={() => { const note = prompt('Reason (optional):') ?? ''; handleReview(exp, 'rejected', note) }}>✗ Reject</Button>
+                  </div>
+                </div>
+              ))}
+            </>
+          )}
+          {reviewed.length > 0 && (
+            <>
+              <div style={{ padding:'10px 16px', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.6px', color:'var(--color-muted)', background:'var(--color-surface-2)', borderBottom:'1px solid var(--color-border)' }}>Reviewed</div>
+              {reviewed.map(exp => (
+                <div key={exp.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', borderBottom:'1px solid var(--color-border)' }}>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:13.5, fontWeight:600 }}>{exp.officialName} — {exp.type}</div>
+                    <div style={{ fontSize:12, color:'var(--color-muted)' }}>{exp.description}</div>
+                  </div>
+                  <div style={{ fontSize:15, fontWeight:700, fontFamily:'var(--font-display)' }}>${(exp.amount ?? 0).toFixed(2)}</div>
+                  <Badge variant={exp.status === 'approved' ? 'green' : 'red'}>{exp.status}</Badge>
+                </div>
+              ))}
+            </>
+          )}
+        </CardBody>
       )}
     </Card>
   )

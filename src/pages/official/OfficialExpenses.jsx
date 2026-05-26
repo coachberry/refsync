@@ -1,268 +1,281 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { db } from '@/lib/firebase'
-import {
-  collection, query, where, onSnapshot,
-  addDoc, deleteDoc, doc, serverTimestamp
-} from 'firebase/firestore'
+import { collection, query, where, onSnapshot, addDoc, serverTimestamp, updateDoc, doc } from 'firebase/firestore'
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage'
+import { storage } from '@/lib/firebase'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
-import { Input, Select, Textarea, FormRow } from '@/components/ui/Input'
 import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
-import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import { format } from 'date-fns'
 import styles from './OfficialExpenses.module.css'
 
 const EXPENSE_TYPES = [
-  { value: 'mileage',  label: '🚗 Mileage',        unit: 'miles' },
-  { value: 'food',     label: '🍔 Food & Meals',    unit: '$' },
-  { value: 'lodging',  label: '🏨 Lodging',         unit: '$' },
-  { value: 'gear',     label: '🏒 Equipment/Gear',  unit: '$' },
-  { value: 'other',    label: '📦 Other',            unit: '$' },
+  'Mileage', 'Hotel/Lodging', 'Meals', 'Equipment', 'Uniform',
+  'Parking', 'Tolls', 'Airfare', 'Rental Car', 'Other',
 ]
 
-const MILEAGE_RATE = 0.67 // IRS 2024 rate per mile
+const STATUS_COLORS = {
+  pending:  'amber',
+  approved: 'green',
+  rejected: 'red',
+  paid:     'green',
+}
 
 export default function OfficialExpenses() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
   const [expenses, setExpenses]   = useState([])
   const [loading, setLoading]     = useState(true)
-  const [showAdd, setShowAdd]     = useState(false)
-  const [deletingId, setDeletingId] = useState(null)
-  const [filter, setFilter]       = useState('all')
-  const [yearFilter, setYearFilter] = useState(new Date().getFullYear().toString())
+  const [showForm, setShowForm]   = useState(false)
+  const [totalPending, setTotalPending] = useState(0)
+  const [totalApproved, setTotalApproved] = useState(0)
 
   useEffect(() => {
     if (!user) return
-    const q = query(collection(db, 'expenses'), where('uid', '==', user.uid))
+    const q = query(collection(db, 'expenses'), where('officialId', '==', user.uid))
     const unsub = onSnapshot(q, snap => {
-      const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      data.sort((a, b) => (b.date ?? '').localeCompare(a.date ?? ''))
+      const data = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .sort((a, b) => (b.createdAt?.toDate?.() ?? 0) - (a.createdAt?.toDate?.() ?? 0))
       setExpenses(data)
+      setTotalPending(data.filter(e => e.status === 'pending').reduce((s, e) => s + (e.amount ?? 0), 0))
+      setTotalApproved(data.filter(e => e.status === 'approved').reduce((s, e) => s + (e.amount ?? 0), 0))
       setLoading(false)
     })
     return unsub
-  }, [user])
+  }, [user?.uid])
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this expense?')) return
-    setDeletingId(id)
-    try {
-      await deleteDoc(doc(db, 'expenses', id))
-      toast.success('Expense deleted')
-    } catch { toast.error('Failed to delete') }
-    finally { setDeletingId(null) }
-  }
-
-  const filtered = expenses.filter(e => {
-    const matchType = filter === 'all' || e.type === filter
-    const matchYear = !yearFilter || (e.date ?? '').startsWith(yearFilter)
-    return matchType && matchYear
-  })
-
-  // Totals
-  const totalMileage  = filtered.filter(e => e.type === 'mileage').reduce((s, e) => s + (Number(e.miles) || 0), 0)
-  const mileageValue  = totalMileage * MILEAGE_RATE
-  const totalOther    = filtered.filter(e => e.type !== 'mileage').reduce((s, e) => s + (Number(e.amount) || 0), 0)
-  const totalDeduction = mileageValue + totalOther
-
-  const years = [...new Set(expenses.map(e => (e.date ?? '').slice(0, 4)))].filter(Boolean).sort().reverse()
+  if (loading) return <div className={styles.center}><Spinner size="lg" /></div>
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Expenses & Mileage</h1>
-          <p className={styles.sub}>Track deductible expenses for tax season</p>
+          <h1 className={styles.title}>Expenses</h1>
+          <p className={styles.sub}>Submit expenses to your scheduler for reimbursement.</p>
         </div>
-        <Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Expense</Button>
+        <Button variant="primary" onClick={() => setShowForm(true)}>+ Submit Expense</Button>
       </div>
 
-      {/* Summary cards */}
-      <div className={styles.summaryGrid}>
+      {/* Summary */}
+      <div className={styles.summaryRow}>
         <div className={styles.summaryCard}>
-          <div className={styles.summaryIcon}>🚗</div>
-          <div className={styles.summaryVal}>{totalMileage.toLocaleString()} mi</div>
-          <div className={styles.summaryLabel}>Total Miles</div>
-          <div className={styles.summaryNote}>${mileageValue.toFixed(2)} deduction @ $0.67/mi</div>
+          <div className={styles.summaryAmount} style={{ color:'var(--orange)' }}>${totalPending.toFixed(2)}</div>
+          <div className={styles.summaryLabel}>Pending Review</div>
         </div>
         <div className={styles.summaryCard}>
-          <div className={styles.summaryIcon}>💸</div>
-          <div className={styles.summaryVal}>${totalOther.toFixed(2)}</div>
-          <div className={styles.summaryLabel}>Other Expenses</div>
-          <div className={styles.summaryNote}>Food, gear, lodging, other</div>
-        </div>
-        <div className={styles.summaryCard} style={{ borderColor: 'var(--teal)', background: 'rgba(0,184,153,.04)' }}>
-          <div className={styles.summaryIcon}>🧾</div>
-          <div className={styles.summaryVal} style={{ color: 'var(--teal)' }}>${totalDeduction.toFixed(2)}</div>
-          <div className={styles.summaryLabel}>Total Deductions</div>
-          <div className={styles.summaryNote}>Estimated tax deductible amount</div>
+          <div className={styles.summaryAmount} style={{ color:'var(--green)' }}>${totalApproved.toFixed(2)}</div>
+          <div className={styles.summaryLabel}>Approved for Payment</div>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className={styles.filters}>
-        <div className={styles.filterGroup}>
-          <button className={[styles.filterBtn, filter === 'all' ? styles.filterActive : ''].join(' ')} onClick={() => setFilter('all')}>All</button>
-          {EXPENSE_TYPES.map(t => (
-            <button key={t.value} className={[styles.filterBtn, filter === t.value ? styles.filterActive : ''].join(' ')} onClick={() => setFilter(t.value)}>
-              {t.label}
-            </button>
-          ))}
-        </div>
-        <select className={styles.yearSelect} value={yearFilter} onChange={e => setYearFilter(e.target.value)}>
-          <option value="">All years</option>
-          {years.map(y => <option key={y} value={y}>{y}</option>)}
-          {!years.includes(new Date().getFullYear().toString()) && (
-            <option value={new Date().getFullYear().toString()}>{new Date().getFullYear()}</option>
+      {/* Expense list */}
+      <Card>
+        <CardHeader><CardTitle>My Expenses</CardTitle></CardHeader>
+        <CardBody noPadding>
+          {expenses.length === 0 ? (
+            <div style={{ padding:24 }}>
+              <EmptyState icon="🧾" title="No expenses submitted yet"
+                message="Submit expenses like mileage, lodging, or meals to your scheduler for reimbursement." />
+            </div>
+          ) : (
+            expenses.map(exp => {
+              const dt = exp.createdAt?.toDate?.() ?? (exp.createdAt ? new Date(exp.createdAt) : null)
+              return (
+                <div key={exp.id} className={styles.expenseRow}>
+                  <div className={styles.expenseInfo}>
+                    <div className={styles.expenseType}>{exp.type}</div>
+                    <div className={styles.expenseDesc}>{exp.description}</div>
+                    <div className={styles.expenseMeta}>
+                      {dt ? format(dt, 'MMM d, yyyy') : '—'}
+                      {exp.gameLabel ? ` · ${exp.gameLabel}` : ''}
+                      {exp.schedulerName ? ` · Submitted to ${exp.schedulerName}` : ''}
+                    </div>
+                    {exp.receiptUrl && (
+                      <a href={exp.receiptUrl} target="_blank" rel="noreferrer" className={styles.receiptLink}>📎 View Receipt</a>
+                    )}
+                    {exp.reviewNote && (
+                      <div className={styles.reviewNote}>{exp.status === 'rejected' ? '❌' : '✅'} {exp.reviewNote}</div>
+                    )}
+                  </div>
+                  <div className={styles.expenseRight}>
+                    <div className={styles.expenseAmount}>${(exp.amount ?? 0).toFixed(2)}</div>
+                    <Badge variant={STATUS_COLORS[exp.status] ?? 'gray'}>{exp.status}</Badge>
+                  </div>
+                </div>
+              )
+            })
           )}
-        </select>
-      </div>
+        </CardBody>
+      </Card>
 
-      {loading ? (
-        <div className={styles.center}><Spinner size="lg" /></div>
-      ) : filtered.length === 0 ? (
-        <Card>
-          <CardBody>
-            <EmptyState
-              icon="🧾"
-              title="No expenses yet"
-              message="Track your mileage and expenses to maximize your tax deductions at year end."
-              action={{ label: '+ Add Expense', onClick: () => setShowAdd(true) }}
-            />
-          </CardBody>
-        </Card>
-      ) : (
-        <Card>
-          <div className={styles.tableWrap}>
-            <table className={styles.table}>
-              <thead>
-                <tr>
-                  <th>Date</th><th>Type</th><th>Description</th>
-                  <th>Amount/Miles</th><th>Deduction</th><th>Game</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map(exp => {
-                  const typeMeta = EXPENSE_TYPES.find(t => t.value === exp.type)
-                  const isMileage = exp.type === 'mileage'
-                  const deduction = isMileage
-                    ? (Number(exp.miles) * MILEAGE_RATE).toFixed(2)
-                    : Number(exp.amount).toFixed(2)
-                  return (
-                    <tr key={exp.id}>
-                      <td className={styles.date}>{exp.date ? format(new Date(exp.date), 'MMM d, yyyy') : '—'}</td>
-                      <td><span className={styles.typeTag}>{typeMeta?.label ?? exp.type}</span></td>
-                      <td>{exp.description || '—'}</td>
-                      <td className={styles.amount}>
-                        {isMileage ? `${exp.miles} mi` : `$${Number(exp.amount).toFixed(2)}`}
-                      </td>
-                      <td className={styles.deduction}>${deduction}</td>
-                      <td className={styles.muted}>{exp.gameName ?? '—'}</td>
-                      <td>
-                        <button
-                          className={styles.deleteBtn}
-                          onClick={() => handleDelete(exp.id)}
-                          disabled={deletingId === exp.id}
-                        >
-                          ✕
-                        </button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr>
-                  <td colSpan="4" className={styles.totalLabel}>Total Deductions ({filtered.length} entries)</td>
-                  <td className={styles.totalAmount}>${totalDeduction.toFixed(2)}</td>
-                  <td colSpan="2"></td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
-        </Card>
+      {showForm && (
+        <ExpenseFormModal
+          open={showForm}
+          onClose={() => setShowForm(false)}
+          user={user}
+          profile={profile}
+        />
       )}
-
-      <AddExpenseModal
-        open={showAdd}
-        onClose={() => setShowAdd(false)}
-        userId={user?.uid}
-      />
     </div>
   )
 }
 
-// ── Add Expense Modal ─────────────────────────────────────────────────────────
-function AddExpenseModal({ open, onClose, userId }) {
-  const [saving, setSaving] = useState(false)
+function ExpenseFormModal({ open, onClose, user, profile }) {
+  const [saving, setSaving]   = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [receiptUrl, setReceiptUrl] = useState('')
+  const [schedulers, setSchedulers] = useState([])
   const [form, setForm] = useState({
-    type: 'mileage', date: format(new Date(), 'yyyy-MM-dd'),
-    miles: '', amount: '', description: '', gameName: '',
-    startLocation: '', endLocation: '',
+    type: 'Mileage', description: '', amount: '',
+    schedulerId: '', schedulerName: '',
+    gameLabel: '', miles: '',
   })
-
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }))
-  const isMileage = form.type === 'mileage'
 
-  const handleSave = async () => {
-    if (!form.date) { toast.error('Date is required'); return }
-    if (isMileage && !form.miles) { toast.error('Miles are required'); return }
-    if (!isMileage && !form.amount) { toast.error('Amount is required'); return }
+  // Load connected schedulers
+  useEffect(() => {
+    if (!user) return
+    const q = query(collection(db, 'connections'),
+      where('toUid', '==', user.uid),
+      where('type', '==', 'scheduler-official'),
+      where('status', '==', 'accepted')
+    )
+    onSnapshot(q, async snap => {
+      const scheds = await Promise.all(snap.docs.map(async d => {
+        const { getDoc, doc: fdoc } = await import('firebase/firestore')
+        const s = await getDoc(fdoc(db, 'users', d.data().fromUid))
+        return s.exists() ? { uid: d.data().fromUid, ...s.data() } : null
+      }))
+      setSchedulers(scheds.filter(Boolean))
+    })
+  }, [user?.uid])
+
+  // Auto-calculate mileage amount
+  useEffect(() => {
+    if (form.type === 'Mileage' && form.miles) {
+      const IRS_RATE = 0.67
+      set('amount', (Number(form.miles) * IRS_RATE).toFixed(2))
+    }
+  }, [form.miles, form.type])
+
+  const handleReceipt = async (e) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const storageRef = ref(storage, `receipts/${user.uid}/${Date.now()}_${file.name}`)
+      await uploadBytes(storageRef, file)
+      const url = await getDownloadURL(storageRef)
+      setReceiptUrl(url)
+      toast.success('Receipt uploaded')
+    } catch { toast.error('Failed to upload receipt') }
+    finally { setUploading(false) }
+  }
+
+  const handleSubmit = async () => {
+    if (!form.type)          { toast.error('Select expense type'); return }
+    if (!form.amount || isNaN(Number(form.amount))) { toast.error('Enter a valid amount'); return }
+    if (!form.schedulerId)   { toast.error('Select a scheduler to submit to'); return }
+    if (!form.description.trim()) { toast.error('Add a description'); return }
     setSaving(true)
     try {
+      const sched = schedulers.find(s => s.uid === form.schedulerId)
       await addDoc(collection(db, 'expenses'), {
-        uid: userId, ...form,
-        miles:  isMileage ? Number(form.miles) : null,
-        amount: !isMileage ? Number(form.amount) : null,
-        deduction: isMileage
-          ? (Number(form.miles) * MILEAGE_RATE)
-          : Number(form.amount),
+        officialId:    user.uid,
+        officialName:  profile?.displayName,
+        schedulerId:   form.schedulerId,
+        schedulerName: sched?.displayName ?? '',
+        type:          form.type,
+        description:   form.description,
+        amount:        Number(form.amount),
+        miles:         form.miles ? Number(form.miles) : null,
+        gameLabel:     form.gameLabel,
+        receiptUrl:    receiptUrl || null,
+        status:        'pending',
+        createdAt:     serverTimestamp(),
+      })
+      // Notify scheduler
+      await addDoc(collection(db, 'notifications'), {
+        uid:     form.schedulerId,
+        type:    'expense',
+        title:   '🧾 Expense Submitted',
+        message: `${profile?.displayName} submitted a $${Number(form.amount).toFixed(2)} ${form.type} expense for review`,
+        read:    false,
+        link:    '/scheduler/finance',
         createdAt: serverTimestamp(),
       })
-      toast.success('Expense added!')
-      setForm({ type: 'mileage', date: format(new Date(), 'yyyy-MM-dd'), miles: '', amount: '', description: '', gameName: '', startLocation: '', endLocation: '' })
+      toast.success('Expense submitted!')
       onClose()
-    } catch { toast.error('Failed to add expense') }
+    } catch (err) { toast.error('Failed to submit: ' + err.message) }
     finally { setSaving(false) }
   }
 
-  const estDeduction = isMileage
-    ? `$${(Number(form.miles || 0) * MILEAGE_RATE).toFixed(2)} deduction`
-    : form.amount ? `$${Number(form.amount).toFixed(2)} deduction` : ''
-
   return (
-    <Modal open={open} onClose={onClose} title="Add Expense" size="md"
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={saving} onClick={handleSave}>Save Expense</Button></>}
+    <Modal open={open} onClose={onClose} title="Submit Expense" size="sm"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button variant="primary" loading={saving} onClick={handleSubmit}>Submit</Button>
+        </>
+      }
     >
-      <Select label="Expense Type" value={form.type} onChange={e => set('type', e.target.value)}>
-        {EXPENSE_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
-      </Select>
-
-      <FormRow>
-        <Input label="Date *" type="date" value={form.date} onChange={e => set('date', e.target.value)} />
-        {isMileage
-          ? <Input label="Miles *" type="number" step="0.1" placeholder="e.g. 24.5" value={form.miles} onChange={e => set('miles', e.target.value)} hint={estDeduction} />
-          : <Input label="Amount ($) *" type="number" step="0.01" placeholder="0.00" value={form.amount} onChange={e => set('amount', e.target.value)} hint={estDeduction} />
-        }
-      </FormRow>
-
-      {isMileage && (
-        <FormRow>
-          <Input label="From" placeholder="Starting address" value={form.startLocation} onChange={e => set('startLocation', e.target.value)} />
-          <Input label="To"   placeholder="Destination" value={form.endLocation} onChange={e => set('endLocation', e.target.value)} />
-        </FormRow>
-      )}
-
-      <Input label="Game / Event" placeholder="e.g. Preds vs Coyotes" value={form.gameName} onChange={e => set('gameName', e.target.value)} />
-      <Input label="Description" placeholder="Optional notes" value={form.description} onChange={e => set('description', e.target.value)} />
-
-      {estDeduction && (
-        <div style={{ background: 'rgba(0,184,153,.08)', border: '1px solid rgba(0,184,153,.2)', borderRadius: 'var(--radius)', padding: '10px 14px', fontSize: 13, color: '#007a65', fontWeight: 600 }}>
-          ✅ Estimated deduction: {estDeduction}
-          {isMileage && ` (IRS rate: $0.67/mile)`}
+      <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+        <div>
+          <label className={styles.label}>Expense Type</label>
+          <select className={styles.input} value={form.type} onChange={e => set('type', e.target.value)}>
+            {EXPENSE_TYPES.map(t => <option key={t}>{t}</option>)}
+          </select>
         </div>
-      )}
+
+        {form.type === 'Mileage' && (
+          <div>
+            <label className={styles.label}>Miles Driven</label>
+            <input type="number" step="0.1" min="0" className={styles.input}
+              placeholder="e.g. 72.5"
+              value={form.miles} onChange={e => set('miles', e.target.value)} />
+            <div style={{ fontSize:11.5, color:'var(--color-muted)', marginTop:4 }}>
+              Reimbursed at IRS rate ($0.67/mile) for trips 50+ miles from home. Amount auto-calculated.
+            </div>
+          </div>
+        )}
+
+        <div>
+          <label className={styles.label}>Amount ($)</label>
+          <input type="number" step="0.01" min="0" className={styles.input}
+            placeholder="25.00"
+            value={form.amount} onChange={e => set('amount', e.target.value)} />
+        </div>
+
+        <div>
+          <label className={styles.label}>Description</label>
+          <input className={styles.input} placeholder="Brief description of the expense"
+            value={form.description} onChange={e => set('description', e.target.value)} />
+        </div>
+
+        <div>
+          <label className={styles.label}>Related Game (optional)</label>
+          <input className={styles.input} placeholder="e.g. Nashville vs Chicago, Jun 14"
+            value={form.gameLabel} onChange={e => set('gameLabel', e.target.value)} />
+        </div>
+
+        <div>
+          <label className={styles.label}>Submit To (Scheduler)</label>
+          <select className={styles.input} value={form.schedulerId} onChange={e => set('schedulerId', e.target.value)}>
+            <option value="">Select scheduler…</option>
+            {schedulers.map(s => <option key={s.uid} value={s.uid}>{s.displayName}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className={styles.label}>Receipt (optional)</label>
+          <input type="file" accept="image/*,.pdf" onChange={handleReceipt}
+            style={{ fontSize:13, color:'var(--color-muted)' }} />
+          {uploading && <div style={{ fontSize:12, color:'var(--color-muted)', marginTop:4 }}>Uploading…</div>}
+          {receiptUrl && <div style={{ fontSize:12, color:'var(--green)', marginTop:4 }}>✓ Receipt uploaded</div>}
+        </div>
+      </div>
     </Modal>
   )
 }

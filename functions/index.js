@@ -386,25 +386,46 @@ exports.autoCompleteGames = onSchedule(
           } catch (e) { console.warn('Could not load pricing sheet:', e.message) }
         }
 
+        // Look up mileage reimbursement if official has a home address
+        let mileageReimbursement = 0
+        let miles = 0
+        try {
+          const homeAddress = userSnap.data()?.officialProfile?.homeAddress
+          const venueAddress = game.venueAddress ?? game.venue
+          if (homeAddress && venueAddress && process.env.GOOGLE_MAPS_KEY) {
+            const mapsUrl = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(homeAddress)}&destinations=${encodeURIComponent(venueAddress)}&units=imperial&key=${process.env.GOOGLE_MAPS_KEY}`
+            const mapsRes  = await fetch(mapsUrl)
+            const mapsData = await mapsRes.json()
+            const element  = mapsData?.rows?.[0]?.elements?.[0]
+            if (element?.status === 'OK') {
+              miles = element.distance.value / 1609.34
+              mileageReimbursement = miles >= 50 ? Math.round(miles * 0.67 * 100) / 100 : 0
+            }
+          }
+        } catch (e) { console.warn('Mileage calc failed:', e.message) }
+
         const paymentRef = db.collection('payments').doc()
         batch.set(paymentRef, {
-          officialId:   official.uid,
-          officialName: official.name,
-          schedulerId:  schedulerId ?? null,
-          gameId:       gameDoc.id,
-          groupId:      game.groupId ?? null,
-          groupName:    game.groupName ?? '',
-          homeTeam:     game.homeTeam,
-          awayTeam:     game.awayTeam,
-          gameDate:     game.gameDate,
-          venue:        game.venue ?? '',
-          division:     game.division ?? '',
-          role:         official.role,
-          amount:       pay,
-          description:  `${official.role} — ${game.homeTeam} vs ${game.awayTeam}`,
-          gameCount:    1,
-          status:       'pending',
-          createdAt:    admin.firestore.FieldValue.serverTimestamp(),
+          officialId:            official.uid,
+          officialName:          official.name,
+          schedulerId:           schedulerId ?? null,
+          gameId:                gameDoc.id,
+          groupId:               game.groupId ?? null,
+          groupName:             game.groupName ?? '',
+          homeTeam:              game.homeTeam,
+          awayTeam:              game.awayTeam,
+          gameDate:              game.gameDate,
+          venue:                 game.venue ?? '',
+          division:              game.division ?? '',
+          role:                  official.role,
+          amount:                pay,
+          mileageReimbursement,
+          miles:                 Math.round(miles * 10) / 10,
+          totalAmount:           pay + mileageReimbursement,
+          description:           `${official.role} — ${game.homeTeam} vs ${game.awayTeam}`,
+          gameCount:             1,
+          status:                'pending',
+          createdAt:             admin.firestore.FieldValue.serverTimestamp(),
         })
 
         // Notify official they have a completed game
@@ -714,6 +735,45 @@ exports.autoAssignGame = onRequest(
       res.json({ assigned: assignments, total: assignments.length })
     } catch (err) {
       console.error('autoAssign error:', err)
+      res.status(500).json({ error: err.message })
+    }
+  })
+)
+
+// ── 12. Calculate mileage for a completed game ────────────────────────────────
+// Called by autoCompleteGames when generating payroll — checks if venue is 50+ miles
+// from official's home address and adds mileage reimbursement to payment record
+exports.calculateMileage = onRequest(
+  { cors: true },
+  async (req, res) => withCors(req, res, async () => {
+    const { officialUid, gameId } = req.body
+    if (!officialUid || !gameId) { res.status(400).json({ error: 'Missing fields' }); return }
+    try {
+      const [userSnap, gameSnap] = await Promise.all([
+        db.collection('users').doc(officialUid).get(),
+        db.collection('games').doc(gameId).get(),
+      ])
+      const homeAddress = userSnap.data()?.officialProfile?.homeAddress
+      const venue       = gameSnap.data()?.venueAddress ?? gameSnap.data()?.venue
+      if (!homeAddress || !venue) { res.json({ miles: 0, reimbursement: 0, skipped: 'missing address' }); return }
+
+      const MAPS_KEY = process.env.GOOGLE_MAPS_KEY
+      if (!MAPS_KEY) { res.json({ miles: 0, reimbursement: 0, skipped: 'no maps key' }); return }
+
+      const url = `https://maps.googleapis.com/maps/api/distancematrix/json?origins=${encodeURIComponent(homeAddress)}&destinations=${encodeURIComponent(venue)}&units=imperial&key=${MAPS_KEY}`
+      const mapsRes  = await fetch(url)
+      const mapsData = await mapsRes.json()
+      const element  = mapsData?.rows?.[0]?.elements?.[0]
+      if (element?.status !== 'OK') { res.json({ miles: 0, reimbursement: 0, skipped: 'route not found' }); return }
+
+      const meters = element.distance.value
+      const miles  = meters / 1609.34
+      const IRS_RATE = 0.67 // 2024 IRS standard mileage rate per mile
+      const reimbursement = miles >= 50 ? Math.round(miles * IRS_RATE * 100) / 100 : 0
+
+      res.json({ miles: Math.round(miles * 10) / 10, reimbursement, eligible: miles >= 50 })
+    } catch (err) {
+      console.error('calculateMileage error:', err)
       res.status(500).json({ error: err.message })
     }
   })

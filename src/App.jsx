@@ -44,6 +44,8 @@ import DirInvoices   from '@/pages/director/DirInvoices'
 
 // Settings
 import AddRole from '@/pages/settings/AddRole'
+import Landing  from '@/pages/Landing'
+import Billing  from '@/pages/admin/Billing'
 
 import { ComingSoon, PageLoader } from '@/components/ui'
 
@@ -55,6 +57,7 @@ export default function App() {
   return (
     <Routes>
       {/* Public */}
+      <Route path="/" element={<Landing />} />
       <Route path="/signup" element={<SignUp />} />
       <Route path="/signin" element={<SignIn />} />
 
@@ -65,6 +68,7 @@ export default function App() {
           <Route path="/profile/messages" element={<ProfileMessages />} />
           <Route path="/profile/finances" element={<ProfileFinances />} />
           <Route path="/profile/edit"     element={<ProfileEdit />} />
+          <Route path="/billing"          element={<Billing />} />
           <Route path="/settings/add-role" element={<AddRole />} />
         </Route>
       </Route>

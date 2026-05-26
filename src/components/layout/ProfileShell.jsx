@@ -11,7 +11,8 @@ const NAV = [
   { to: '/profile',          label: 'Overview',  icon: '👤', end: true },
   { to: '/profile/messages', label: 'Messages',  icon: '💬' },
   { to: '/profile/finances', label: 'Finances',  icon: '💰' },
-  { to: '/profile/edit',     label: 'Edit Profile', icon: '✏️' },
+  { to: '/profile/edit',     label: 'Edit Profile',    icon: '✏️' },
+  { to: '/billing',          label: 'Billing & Plans',  icon: '💳' },
 ]
 
 const ROLE_META = {

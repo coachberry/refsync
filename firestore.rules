@@ -118,6 +118,20 @@ service cloud.firestore {
       allow delete: if isAuth() && resource.data.schedulerId == request.auth.uid;
     }
 
+    // ── Expenses ──────────────────────────────────────────────────────────────
+    match /expenses/{expenseId} {
+      allow read:   if isAuth() && (
+        resource.data.officialId == request.auth.uid ||
+        resource.data.schedulerId == request.auth.uid
+      );
+      allow create: if isAuth();
+      allow update: if isAuth() && (
+        resource.data.officialId == request.auth.uid ||
+        resource.data.schedulerId == request.auth.uid
+      );
+      allow delete: if isAuth() && resource.data.officialId == request.auth.uid;
+    }
+
     // ── Game Reports ──────────────────────────────────────────────────────────
     match /gameReports/{reportId} {
       allow read:  if isAuth() && (
