@@ -58,9 +58,55 @@ export default function SchedAssign() {
   const [selectedRole, setSelectedRole] = useState('Scorekeeper')
   const [officialAvailability, setOfficialAvailability] = useState({}) // { uid: dayData }
   const [loadingAvail, setLoadingAvail] = useState(false)
-  const [assigning, setAssigning] = useState(null)
-  const [approving, setApproving] = useState(null)
-  const [tab, setTab] = useState('requests') // 'requests' | 'manual'
+  const [assigning, setAssigning]       = useState(null)
+  const [approving, setApproving]       = useState(null)
+  const [tab, setTab]                   = useState('requests')
+  const [showUnavailable, setShowUnavailable] = useState(false)
+
+  // Build crew slot list from game's requested slots
+  const buildCrewSlots = (game) => {
+    const slots = []
+    const assigned = game.assignedOfficials ?? []
+    const refs  = Number(game.refs  ?? 0)
+    const lines = Number(game.linesmen ?? 0)
+    const sks   = Number(game.scorekeepers ?? 0)
+    for (let i = 1; i <= refs;  i++) {
+      const role = refs === 1 ? 'Referee' : `Referee ${i}`
+      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
+    }
+    for (let i = 1; i <= lines; i++) {
+      const role = lines === 1 ? 'Linesman' : `Linesman ${i}`
+      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
+    }
+    for (let i = 1; i <= sks;   i++) {
+      const role = sks === 1 ? 'Scorekeeper' : `Scorekeeper ${i}`
+      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
+    }
+    return slots
+  }
+
+  const isSlotFull = (game, role) => {
+    return (game.assignedOfficials ?? []).some(o => o.role === role)
+  }
+
+  // Unassign an official from a role
+  const handleUnassign = async (uid, role) => {
+    if (!selectedGame) return
+    setAssigning(uid)
+    try {
+      const updatedOfficials = (selectedGame.assignedOfficials ?? []).filter(o => !(o.uid === uid && o.role === role))
+      const updatedUids      = updatedOfficials.map(o => o.uid)
+      await updateDoc(doc(db, 'games', selectedGame.id), {
+        assignedOfficials: updatedOfficials,
+        assignedUids:      updatedUids,
+        status: updatedUids.length === 0 ? 'open' : 'assigned',
+        updatedAt: serverTimestamp(),
+      })
+      toast.success('Official unassigned')
+    } catch (err) {
+      toast.error('Failed to unassign: ' + err.message)
+    } finally { setAssigning(null) }
+  }
 
   // Subscribe to game requests for selected game
   const [gameRequests, setGameRequests] = useState([])
@@ -101,6 +147,14 @@ export default function SchedAssign() {
       setSelectedGame(open[0])
     }
   }, [open])
+
+  // Auto-select first open crew slot when game changes
+  useEffect(() => {
+    if (!selectedGame) return
+    const slots = buildCrewSlots(selectedGame)
+    const firstOpen = slots.find(s => !s.assignedOfficial)
+    if (firstOpen) setSelectedRole(firstOpen.role)
+  }, [selectedGame?.id])
 
   // Approve a scorekeeper request — assigns them to the game
   const handleApprove = async (request) => {
@@ -308,12 +362,35 @@ export default function SchedAssign() {
                   })()}
                 </div>
 
-                {/* Role selector */}
-                <div className={styles.roleConfig}>
-                  <label className={styles.configLabel}>Role</label>
-                  <select className={styles.select} value={selectedRole} onChange={e => setSelectedRole(e.target.value)}>
-                    {HOCKEY_ROLES.map(r => <option key={r}>{r}</option>)}
-                  </select>
+                {/* Crew slots — show filled/open per role based on game requirements */}
+                <div className={styles.crewSlots}>
+                  <div className={styles.crewSlotsTitle}>Crew</div>
+                  <div className={styles.crewSlotsList}>
+                    {buildCrewSlots(selectedGame).map((slot, i) => {
+                      const filled = slot.assignedOfficial
+                      return (
+                        <div key={i} className={[styles.crewSlot, filled ? styles.crewSlotFilled : styles.crewSlotEmpty].join(' ')}>
+                          <div className={styles.crewSlotRole}>{slot.role}</div>
+                          {filled ? (
+                            <div className={styles.crewSlotAssigned}>
+                              <span className={styles.crewSlotName}>{filled.name}</span>
+                              <button className={styles.unassignBtn}
+                                onClick={() => handleUnassign(filled.uid, slot.role)}
+                                title="Unassign">✕</button>
+                            </div>
+                          ) : (
+                            <div className={styles.crewSlotOpen}>
+                              <span className={styles.crewSlotOpenLabel}>Open</span>
+                              <button className={styles.assignToSlotBtn}
+                                onClick={() => setSelectedRole(slot.role)}>
+                                {selectedRole === slot.role ? '← Assigning' : 'Select'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
                 </div>
 
                 {/* Tabs */}
@@ -330,7 +407,7 @@ export default function SchedAssign() {
                   {tab === 'requests' && (
                     <div>
                       {(selectedGame.requests ?? []).length === 0 ? (
-                        <EmptyState icon="📥" title="No requests yet" message="Scorekeepers will appear here when they request this game." />
+                        <EmptyState icon="📥" title="No requests yet" message="Officials will appear here when they request this game." />
                       ) : (
                         (selectedGame.requests ?? []).map((req, i) => (
                           <div key={i} className={[styles.requestRow, req.status === 'approved' ? styles.reqApproved : req.status === 'declined' ? styles.reqDeclined : ''].join(' ')}>
@@ -364,38 +441,81 @@ export default function SchedAssign() {
                         <EmptyState icon="👥" title="No officials on your roster" message="Invite officials to your roster first." />
                       ) : (
                         <>
-                          <div style={{ fontSize:12, color:'var(--color-muted)', padding:'6px 0 10px', lineHeight:1.5 }}>
-                            ⏱ Showing availability with a <strong>1-hour buffer</strong> around game time.
+                          {/* Assigning to role indicator */}
+                          <div style={{ padding:'10px 14px', background:'var(--color-surface-2)', borderBottom:'1px solid var(--color-border)', fontSize:13 }}>
+                            Assigning: <strong>{selectedRole}</strong>
+                            <span style={{ color:'var(--color-muted)', marginLeft:8, fontSize:12 }}>
+                              (select a slot above to change)
+                            </span>
                           </div>
-                          {roster.map(official => {
-                            const uid = official.uid ?? official.id
-                            const assigned = selectedGame.assignedUids?.includes(uid)
-                            const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
-                            const gameTimeStr = format(gameDate, 'HH:mm')
-                            const dayData = officialAvailability[uid]
-                            const availStatus = dayData === undefined ? 'unknown'
-                              : checkAvailability(dayData, gameTimeStr, selectedGame.duration ?? 1.5)
-                            const availMeta = AVAIL_META[availStatus]
-                            return (
-                              <div key={uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
-                                <Avatar name={official.displayName} size="sm" />
-                                <div className={styles.officialInfo}>
-                                  <div className={styles.officialName}>{official.displayName}</div>
-                                  <div className={styles.officialMeta}>
-                                    {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
-                                    <span style={{ marginLeft:8, fontWeight:600, color:availMeta.color }}>{availMeta.label}</span>
+
+                          {/* Show unavailable checkbox */}
+                          <div style={{ padding:'8px 14px', borderBottom:'1px solid var(--color-border)', display:'flex', alignItems:'center', gap:8 }}>
+                            <input type="checkbox" id="showUnavail" checked={showUnavailable}
+                              onChange={e => setShowUnavailable(e.target.checked)}
+                              style={{ width:15, height:15, cursor:'pointer' }} />
+                            <label htmlFor="showUnavail" style={{ fontSize:13, cursor:'pointer', color:'var(--color-muted)' }}>
+                              Show unavailable officials
+                            </label>
+                          </div>
+
+                          {/* Official list — filtered by availability */}
+                          {roster
+                            .filter(official => {
+                              const uid = official.uid ?? official.id
+                              const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+                              const gameTimeStr = format(gameDate, 'HH:mm')
+                              const dayData = officialAvailability[uid]
+                              const avail = dayData === undefined ? 'unknown'
+                                : checkAvailability(dayData, gameTimeStr, selectedGame.duration ?? 1.5)
+                              if (!showUnavailable && avail === 'unavailable') return false
+                              return true
+                            })
+                            .map(official => {
+                              const uid = official.uid ?? official.id
+                              const assigned = (selectedGame.assignedOfficials ?? []).find(o => o.uid === uid && o.role === selectedRole)
+                              const assignedAny = selectedGame.assignedUids?.includes(uid)
+                              const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+                              const gameTimeStr = format(gameDate, 'HH:mm')
+                              const dayData = officialAvailability[uid]
+                              const availStatus = dayData === undefined ? 'unknown'
+                                : checkAvailability(dayData, gameTimeStr, selectedGame.duration ?? 1.5)
+                              const availMeta = AVAIL_META[availStatus]
+
+                              // Check if this role slot is already filled
+                              const slotFull = isSlotFull(selectedGame, selectedRole)
+
+                              return (
+                                <div key={uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
+                                  <Avatar name={official.displayName} size="sm" />
+                                  <div className={styles.officialInfo}>
+                                    <div className={styles.officialName}>{official.displayName}</div>
+                                    <div className={styles.officialMeta}>
+                                      {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
+                                      <span style={{ marginLeft:8, fontWeight:600, color:availMeta.color }}>{availMeta.label}</span>
+                                    </div>
                                   </div>
+                                  {assigned ? (
+                                    <Button size="sm" variant="ghost"
+                                      style={{ color:'var(--orange)', borderColor:'var(--orange-light)' }}
+                                      loading={assigning === uid}
+                                      onClick={() => handleUnassign(uid, selectedRole)}>
+                                      Unassign
+                                    </Button>
+                                  ) : slotFull ? (
+                                    <Badge variant="gray">Slot filled</Badge>
+                                  ) : (
+                                    <Button size="sm" variant={availStatus === 'unavailable' ? 'ghost' : 'primary'}
+                                      loading={assigning === uid}
+                                      onClick={() => handleManualAssign(official)}
+                                      disabled={availStatus === 'unavailable' && !showUnavailable}>
+                                      Assign
+                                    </Button>
+                                  )}
                                 </div>
-                                {assigned ? <Badge variant="green">Assigned</Badge> : (
-                                  <Button size="sm" variant={availMeta.btnVariant}
-                                    loading={assigning === uid}
-                                    onClick={() => handleManualAssign(official)}>
-                                    {availStatus === 'unavailable' ? 'Unavailable' : availStatus === 'insufficient' ? 'Assign Anyway' : 'Assign'}
-                                  </Button>
-                                )}
-                              </div>
-                            )
-                          })}
+                              )
+                            })
+                          }
                         </>
                       )}
                     </div>
