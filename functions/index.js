@@ -10,9 +10,15 @@ const STRIPE_SECRET = defineSecret('STRIPE_SECRET_KEY')
 
 const getStripe = () => {
   const val = STRIPE_SECRET.value()
-  // val is the JSON string: {"stripe":{"secret":"sk_test_..."}}
-  const parsed = typeof val === 'string' ? JSON.parse(val) : val
-  return stripe(parsed.stripe.secret)
+  // Handle both plain string "sk_test_..." and JSON {"stripe":{"secret":"sk_test_..."}}
+  let secretKey = val
+  if (typeof val === 'string' && val.trim().startsWith('{')) {
+    try {
+      const parsed = JSON.parse(val)
+      secretKey = parsed?.stripe?.secret ?? parsed?.secret ?? val
+    } catch { secretKey = val }
+  }
+  return stripe(secretKey)
 }
 
 const corsHeaders = {
@@ -36,6 +42,7 @@ exports.createConnectAccountLink = onRequest(
       if (!uid || !email) { res.status(400).json({ error: 'uid and email required' }); return }
 
       const S = getStripe()
+      console.log('createConnectAccountLink called for uid:', uid)
       const userDoc = await db.collection('users').doc(uid).get()
       let stripeAccountId = userDoc.data()?.stripeAccountId
 
