@@ -9,7 +9,7 @@
  */
 import {
   collection, doc, addDoc, updateDoc, deleteDoc,
-  getDoc, getDocs, setDoc, query, where,
+  getDoc, getDocs, setDoc, query, where, documentId,
   onSnapshot, serverTimestamp, arrayUnion, arrayRemove,
   increment, writeBatch, limit,
 } from 'firebase/firestore'
@@ -61,15 +61,25 @@ export const createGameGroup = (data, uid) =>
 export const getGameGroup = (id) =>
   getDoc(doc(db, COLS.gameGroups, id)).then((s) => s.exists() ? { id: s.id, ...s.data() } : null)
 
-export const subscribeGameGroups = (uid, role, callback) => {
-  const field = role === 'director' ? 'directorId' : 'schedulerId'
-  const q = query(
-    collection(db, COLS.gameGroups),
-    where(field, '==', uid)
-  )
-  return onSnapshot(q, (snap) =>
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-  )
+export const subscribeGameGroups = (uid, role, callback, groupIds = null) => {
+  // Schedulers see groups via their RFQ-linked groupIds
+  if (role === 'scheduler' && groupIds !== null) {
+    if (groupIds.length === 0) { callback([]); return () => {} }
+    const chunks = []
+    for (let i = 0; i < groupIds.length; i += 30) chunks.push(groupIds.slice(i, i + 30))
+    const results = new Map()
+    const unsubs = chunks.map(chunk => {
+      const q = query(collection(db, COLS.gameGroups), where(documentId(), 'in', chunk))
+      return onSnapshot(q, snap => {
+        snap.docs.forEach(d => results.set(d.id, { id: d.id, ...d.data() }))
+        callback(Array.from(results.values()))
+      })
+    })
+    return () => unsubs.forEach(u => u())
+  }
+  // Directors see their own groups by directorId
+  const q = query(collection(db, COLS.gameGroups), where('directorId', '==', uid))
+  return onSnapshot(q, snap => callback(snap.docs.map(d => ({ id: d.id, ...d.data() }))))
 }
 
 export const updateGameGroup = (id, data) =>

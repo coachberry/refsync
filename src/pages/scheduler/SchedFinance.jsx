@@ -190,7 +190,7 @@ function OverviewTab({ invoices, payments, roster }) {
         <CardHeader><CardTitle>Pending Payroll</CardTitle></CardHeader>
         <CardBody noPadding>
           {pendingPayments.length === 0 ? (
-            <EmptyState icon="✅" title="All officials paid" />
+            <EmptyState icon="💰" title="No pending payroll" message="Officials will appear here once you create payment records for them." />
           ) : pendingPayments.map(pay => (
             <div key={pay.id} className={styles.listRow}>
               <div className={styles.listRowLeft}>
