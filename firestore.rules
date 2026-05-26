@@ -33,10 +33,12 @@ service cloud.firestore {
       allow read:   if isAuth();
       allow create: if isAuth() && hasRole('director');
       allow update: if isAuth() && (
-        resource.data.directorId == request.auth.uid ||
-        resource.data.schedulerId == request.auth.uid ||
+        resource.data.directorId   == request.auth.uid ||
+        resource.data.schedulerId  == request.auth.uid ||
         resource.data.skSchedulerId == request.auth.uid ||
-        request.auth.uid in resource.data.assignedUids
+        request.auth.uid in resource.data.get('assignedUids', []) ||
+        hasRole('scheduler') ||
+        hasRole('official')
       );
       allow delete: if isAuth() && resource.data.directorId == request.auth.uid;
     }

@@ -216,7 +216,9 @@ export default function OfficialSchedule() {
                           {game.groupName && <div className={styles.groupTag}>🏆 {game.groupName}</div>}
                         </div>
                         <div className={styles.gameRight}>
-                          <div className={styles.gamePay}>${(game.payRate ?? 0).toFixed(2)}</div>
+                          <div className={styles.gamePay}>
+                            {game.skPayRate ? `$${Number(game.skPayRate).toFixed(2)}` : game.refPayRate ? `$${Number(game.refPayRate).toFixed(2)}` : game.payRate ? `$${Number(game.payRate).toFixed(2)}` : 'Pay TBD'}
+                          </div>
                           <Badge variant="blue">Open</Badge>
                         </div>
                       </div>
@@ -265,7 +267,9 @@ export default function OfficialSchedule() {
                       </div>
                       <div className={styles.gameRight}>
                         <Badge variant="amber">Awaiting Approval</Badge>
-                        <div className={styles.gamePay}>${(game.payRate ?? 0).toFixed(2)}</div>
+                        <div className={styles.gamePay}>
+                          {game.skPayRate ? `$${Number(game.skPayRate).toFixed(2)}` : game.refPayRate ? `$${Number(game.refPayRate).toFixed(2)}` : game.payRate ? `$${Number(game.payRate).toFixed(2)}` : 'Pay TBD'}
+                        </div>
                       </div>
                     </div>
 

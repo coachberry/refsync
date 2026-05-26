@@ -230,7 +230,9 @@ export default function SchedAssign() {
                             )}
                           </div>
                         </div>
-                        <div className={styles.gamePay}>${(game.payRate ?? 0).toFixed(2)}</div>
+                        <div className={styles.gamePay}>
+                          {game.skPayRate ? `SK $${Number(game.skPayRate).toFixed(2)}` : game.refPayRate ? `Ref $${Number(game.refPayRate).toFixed(2)}` : game.payRate ? `$${Number(game.payRate).toFixed(2)}` : '—'}
+                        </div>
                       </div>
                     )
                   })}
@@ -310,16 +312,32 @@ export default function SchedAssign() {
                         <EmptyState icon="👥" title="No officials on your roster" message="Invite officials to your roster first." />
                       ) : (
                         roster.map(official => {
-                          const assigned = selectedGame.assignedUids?.includes(official.uid)
+                          const uid = official.uid ?? official.id
+                          const assigned = selectedGame.assignedUids?.includes(uid)
+                          const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+                          const gameDateStr = gameDate.toISOString().slice(0, 10)
+                          const avail = official.availability ?? {}
+                          const isAvailable   = avail[gameDateStr] === true || avail[gameDateStr] === 'available'
+                          const isUnavailable = avail[gameDateStr] === false || avail[gameDateStr] === 'unavailable'
                           return (
-                            <div key={official.uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
+                            <div key={uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
                               <Avatar name={official.displayName} size="sm" />
                               <div className={styles.officialInfo}>
                                 <div className={styles.officialName}>{official.displayName}</div>
-                                <div className={styles.officialMeta}>{(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}</div>
+                                <div className={styles.officialMeta}>
+                                  {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
+                                  {isAvailable   && <span style={{ color:'var(--teal)', marginLeft:8, fontWeight:700 }}>✓ Available</span>}
+                                  {isUnavailable && <span style={{ color:'var(--red)',  marginLeft:8, fontWeight:700 }}>✗ Unavailable</span>}
+                                  {!isAvailable && !isUnavailable && <span style={{ color:'var(--color-muted)', marginLeft:8 }}>No availability set</span>}
+                                </div>
                               </div>
                               {assigned ? <Badge variant="green">Assigned</Badge> : (
-                                <Button size="sm" variant="primary" loading={assigning === official.uid} onClick={() => handleManualAssign(official)}>Assign</Button>
+                                <Button size="sm" variant={isUnavailable ? 'ghost' : 'primary'}
+                                  loading={assigning === uid}
+                                  onClick={() => handleManualAssign(official)}
+                                  title={isUnavailable ? 'Official marked themselves unavailable' : ''}>
+                                  {isUnavailable ? 'Assign Anyway' : 'Assign'}
+                                </Button>
                               )}
                             </div>
                           )

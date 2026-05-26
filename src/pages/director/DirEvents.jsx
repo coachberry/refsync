@@ -60,6 +60,17 @@ export default function DirEvents() {
       const gamesSnap = await getDocs(query(collection(db, 'games'), where('groupId', '==', group.id)))
       gamesSnap.docs.forEach(d => batch.delete(d.ref))
 
+      // 1b. Delete all assignments for those games
+      const gameIds = gamesSnap.docs.map(d => d.id)
+      if (gameIds.length > 0) {
+        const chunks = []
+        for (let i = 0; i < gameIds.length; i += 30) chunks.push(gameIds.slice(i, i + 30))
+        for (const chunk of chunks) {
+          const assSnap = await getDocs(query(collection(db, 'assignments'), where('gameId', 'in', chunk)))
+          assSnap.docs.forEach(d => batch.delete(d.ref))
+        }
+      }
+
       // 2. Delete all RFQs for this group
       const rfqsSnap = await getDocs(query(collection(db, 'rfqs'), where('groupId', '==', group.id)))
       rfqsSnap.docs.forEach(d => batch.delete(d.ref))

@@ -95,13 +95,17 @@ export const createGame = (data) =>
   })
 
 export const subscribeGames = (groupId, callback) => {
-  const q = query(
-    collection(db, COLS.games),
-    where('groupId', '==', groupId)
-  )
-  return onSnapshot(q, (snap) =>
-    callback(snap.docs.map((d) => ({ id: d.id, ...d.data() })))
-  )
+  const q = query(collection(db, COLS.games), where('groupId', '==', groupId))
+  return onSnapshot(q, snap => {
+    const games = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
+        const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
+        return da - db_
+      })
+    callback(games)
+  })
 }
 
 export const subscribeOfficialGames = (uid, callback) => {
