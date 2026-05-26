@@ -125,11 +125,39 @@ export const updateGame = (id, data) =>
 export const assignOfficial = async (gameId, officialData, schedulerId) => {
   const batch = writeBatch(db)
   const gameRef = doc(db, COLS.games, gameId)
+
+  // Read current game to compute completion
+  const gameSnap = await getDoc(gameRef)
+  const game = gameSnap.exists() ? gameSnap.data() : {}
+  const currentAssigned = game.assignedOfficials ?? []
+
+  // Remove any existing assignment for this uid+role combo (prevent duplicates)
+  const filtered = currentAssigned.filter(o => !(o.uid === officialData.uid && o.role === officialData.role))
+  const newAssigned = [...filtered, { ...officialData, status: 'pending', assignedAt: new Date().toISOString() }]
+  const newUids = [...new Set(newAssigned.map(o => o.uid))]
+
+  // Compute per-type slot fill status
+  const refsNeeded  = Number(game.refs ?? 0)
+  const linesNeeded = Number(game.linesmen ?? 0)
+  const sksNeeded   = Number(game.scorekeepers ?? 0)
+  const refsAssigned  = newAssigned.filter(o => o.role?.startsWith('Referee')).length
+  const linesAssigned = newAssigned.filter(o => o.role?.startsWith('Linesman')).length
+  const sksAssigned   = newAssigned.filter(o => o.role?.startsWith('Scorekeeper')).length
+
+  const refSlotsFull = refsAssigned >= refsNeeded && linesAssigned >= linesNeeded
+  const skSlotsFull  = sksAssigned >= sksNeeded
+  const allSlotsFull = refSlotsFull && skSlotsFull
+
   batch.update(gameRef, {
-    assignedOfficials: arrayUnion({ ...officialData, status: 'pending', assignedAt: new Date().toISOString() }),
-    assignedUids: arrayUnion(officialData.uid),
+    assignedOfficials: newAssigned,
+    assignedUids: newUids,
+    refSlotsFull,
+    skSlotsFull,
+    allSlotsFull,
+    status: allSlotsFull ? 'assigned' : 'open',
     updatedAt: serverTimestamp(),
   })
+
   const assRef = doc(collection(db, COLS.assignments))
   batch.set(assRef, {
     gameId,
@@ -140,6 +168,7 @@ export const assignOfficial = async (gameId, officialData, schedulerId) => {
     status: 'pending',
     createdAt: serverTimestamp(),
   })
+
   await batch.commit()
   return assRef.id
 }

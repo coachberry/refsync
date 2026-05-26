@@ -114,11 +114,26 @@ export default function SchedAssign() {
     setAssigning(uid)
     try {
       const updatedOfficials = (selectedGame.assignedOfficials ?? []).filter(o => !(o.uid === uid && o.role === role))
-      const updatedUids      = updatedOfficials.map(o => o.uid)
+      const updatedUids = [...new Set(updatedOfficials.map(o => o.uid))]
+
+      // Recompute slot fill status
+      const refsNeeded  = Number(selectedGame.refs ?? 0)
+      const linesNeeded = Number(selectedGame.linesmen ?? 0)
+      const sksNeeded   = Number(selectedGame.scorekeepers ?? 0)
+      const refsAssigned  = updatedOfficials.filter(o => o.role?.startsWith('Referee')).length
+      const linesAssigned = updatedOfficials.filter(o => o.role?.startsWith('Linesman')).length
+      const sksAssigned   = updatedOfficials.filter(o => o.role?.startsWith('Scorekeeper')).length
+      const refSlotsFull = refsAssigned >= refsNeeded && linesAssigned >= linesNeeded
+      const skSlotsFull  = sksAssigned >= sksNeeded
+      const allSlotsFull = refSlotsFull && skSlotsFull
+
       await updateDoc(doc(db, 'games', selectedGame.id), {
         assignedOfficials: updatedOfficials,
-        assignedUids:      updatedUids,
-        status: updatedUids.length === 0 ? 'open' : 'assigned',
+        assignedUids: updatedUids,
+        refSlotsFull,
+        skSlotsFull,
+        allSlotsFull,
+        status: updatedUids.length === 0 ? 'open' : allSlotsFull ? 'assigned' : 'open',
         updatedAt: serverTimestamp(),
       })
       toast.success('Official unassigned')
@@ -317,8 +332,24 @@ export default function SchedAssign() {
               <CardHeader>
                 <CardTitle>Games</CardTitle>
                 <div style={{ display: 'flex', gap: 6 }}>
-                  <Badge variant="red">{open.length} open</Badge>
-                  <Badge variant="green">{games.length - open.length} filled</Badge>
+                  {isRefScheduler && !isBothScheduler && (
+                    <>
+                      <Badge variant="red">{games.filter(g => !g.refSlotsFull).length} ref open</Badge>
+                      <Badge variant="green">{games.filter(g => g.refSlotsFull).length} ref filled</Badge>
+                    </>
+                  )}
+                  {isSKScheduler && !isBothScheduler && (
+                    <>
+                      <Badge variant="red">{games.filter(g => !g.skSlotsFull).length} SK open</Badge>
+                      <Badge variant="green">{games.filter(g => g.skSlotsFull).length} SK filled</Badge>
+                    </>
+                  )}
+                  {isBothScheduler && (
+                    <>
+                      <Badge variant="red">{games.filter(g => !g.allSlotsFull).length} open</Badge>
+                      <Badge variant="green">{games.filter(g => g.allSlotsFull).length} filled</Badge>
+                    </>
+                  )}
                 </div>
               </CardHeader>
               <CardBody noPadding>
@@ -345,7 +376,12 @@ export default function SchedAssign() {
                             {game.division && ` · ${game.division}`}
                           </div>
                           <div className={styles.gameItemFooter}>
-                            <Badge variant={statusBadge(game.status)}>{game.status}</Badge>
+                            {(() => {
+                              const myDone = isRefScheduler && !isBothScheduler ? game.refSlotsFull
+                                          : isSKScheduler  && !isBothScheduler ? game.skSlotsFull
+                                          : game.allSlotsFull
+                              return <Badge variant={myDone ? 'green' : 'red'}>{myDone ? 'My slots filled' : 'Slots open'}</Badge>
+                            })()}
                             {pendingReqs > 0 && <span className={styles.requestsBadge}>⚡ {pendingReqs} request{pendingReqs > 1 ? 's' : ''}</span>}
                             {game.assignedOfficials?.length > 0 && (
                               <span className={styles.crewLine}>
