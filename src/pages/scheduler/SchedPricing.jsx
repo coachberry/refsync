@@ -97,8 +97,8 @@ export default function SchedPricing() {
     <div className={styles.page}>
       <div className={styles.header}>
         <div>
-          <h1 className={styles.title}>Pricing Sheet</h1>
-          <p className={styles.sub}>Set pay rates per division and role. Only visible to you.</p>
+          <h1 className={styles.title}>Pay Rates</h1>
+          <p className={styles.sub}>Set official pay rates per division and role. Only visible to you.</p>
         </div>
         <Button variant="primary" onClick={() => setShowAdd(true)}>+ Add Rule</Button>
       </div>

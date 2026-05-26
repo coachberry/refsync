@@ -46,7 +46,7 @@ const NAV_CONFIG = {
     { section: 'Management', items: [
       { to: '/scheduler/roster',   label: 'Roster',       icon: UsersIcon },
       { to: '/scheduler/finance',  label: 'Finance',      icon: DollarIcon },
-      { to: '/scheduler/pricing',  label: 'Pricing Sheet', icon: ReceiptIcon },
+      { to: '/scheduler/pricing',  label: 'Pay Rates',    icon: ReceiptIcon },
       { to: '/scheduler/news',     label: 'News',         icon: NewsIcon },
     ]},
     { section: 'Account', items: [
