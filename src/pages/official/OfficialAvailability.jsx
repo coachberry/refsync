@@ -1,90 +1,144 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
-import { useAvailability } from '@/hooks/useAvailability'
+import { db } from '@/lib/firebase'
+import { doc, getDoc, setDoc } from 'firebase/firestore'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState } from '@/components/ui'
 import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameMonth, isSameDay, isToday,
-  addMonths, subMonths, isBefore, startOfDay, parseISO
+  addMonths, subMonths, isBefore, startOfDay
 } from 'date-fns'
 import styles from './OfficialAvailability.module.css'
+import toast from 'react-hot-toast'
 
-const BLOCK_TYPES = {
-  unavailable: { label: 'Unavailable', color: '#aa1a1a', bg: 'rgba(204,31,31,.08)', border: 'rgba(204,31,31,.3)', icon: '🚫' },
-  available:   { label: 'Available',   color: '#007a65', bg: 'rgba(0,184,153,.1)',  border: 'var(--teal)',         icon: '✅' },
+/**
+ * Availability model — unavailable by default.
+ * Each day stored under users/{uid}/availability/{yyyy-MM-dd}:
+ * {
+ *   status: 'available_all_day' | 'unavailable_all_day' | 'partial',
+ *   windows: [{ start: 'HH:MM', end: 'HH:MM' }]  // only when partial
+ * }
+ * Absence of a record = unavailable_all_day
+ */
+
+const STATUS_META = {
+  unavailable_all_day: { label: 'Unavailable all day', icon: '🚫', color: 'var(--orange)', bg: 'var(--orange-light)' },
+  available_all_day:   { label: 'Available all day',   icon: '✅', color: 'var(--green)',  bg: 'var(--green-light)'  },
+  partial:             { label: 'Partial availability', icon: '🕐', color: 'var(--blue)',   bg: 'var(--blue-light)'   },
+}
+
+const toMins = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
+const fromMins = (m) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`
+
+export function isAvailableForWindow(dayData, neededStart, neededEnd) {
+  if (!dayData || dayData.status === 'unavailable_all_day') return false
+  if (dayData.status === 'available_all_day') return true
+  if (dayData.status === 'partial') {
+    const ns = toMins(neededStart), ne = toMins(neededEnd)
+    return (dayData.windows ?? []).some(w => toMins(w.start) <= ns && toMins(w.end) >= ne)
+  }
+  return false
 }
 
 export default function OfficialAvailability() {
   const { user } = useAuth()
-  const { blocks, loading, addBlock, removeBlock } = useAvailability()
-  const [currentMonth, setCurrentMonth]   = useState(new Date())
-  const [selectedDate, setSelectedDate]   = useState(null)
-  const [showBlockForm, setShowBlockForm] = useState(false)
-  const [blockForm, setBlockForm] = useState({
-    type: 'unavailable',
-    allDay: false,
-    startTime: '09:00',
-    endTime: '17:00',
-    startLocation: '',
-    notes: '',
+  const [availability, setAvailability] = useState({}) // { 'yyyy-MM-dd': { status, windows } }
+  const [loading, setLoading]     = useState(true)
+  const [saving, setSaving]       = useState(false)
+  const [currentMonth, setCurrentMonth] = useState(new Date())
+  const [selectedDate, setSelectedDate] = useState(null)
+  const [dayDraft, setDayDraft]   = useState(null) // draft edits for selected day
+  const [windowForm, setWindowForm] = useState({ start: '09:00', end: '17:00' })
+
+  const today    = startOfDay(new Date())
+  const isPast   = (d) => isBefore(startOfDay(d), today)
+  const calDays  = eachDayOfInterval({
+    start: startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 }),
+    end:   endOfWeek(endOfMonth(currentMonth),     { weekStartsOn: 0 }),
   })
-  const [saving, setSaving] = useState(false)
 
-  const today      = startOfDay(new Date())
-  const monthStart = startOfMonth(currentMonth)
-  const monthEnd   = endOfMonth(currentMonth)
-  const calStart   = startOfWeek(monthStart, { weekStartsOn: 0 })
-  const calEnd     = endOfWeek(monthEnd,     { weekStartsOn: 0 })
-  const calDays    = eachDayOfInterval({ start: calStart, end: calEnd })
+  // Load availability from Firestore
+  useEffect(() => {
+    if (!user) return
+    getDoc(doc(db, 'users', user.uid, 'availability', 'data'))
+      .then(snap => {
+        if (snap.exists()) setAvailability(snap.data())
+        setLoading(false)
+      })
+      .catch(() => setLoading(false))
+  }, [user])
 
-  const blocksForDate = (dateStr) => blocks.filter(b => b.date === dateStr)
-
-  // Summarise a date for the calendar dot color
-  const dateSummary = (dateStr) => {
-    const dateBlocks = blocksForDate(dateStr)
-    if (!dateBlocks.length) return null
-    if (dateBlocks.some(b => b.type === 'unavailable')) return 'unavailable'
-    return 'available'
-  }
-
-  const isPast = (day) => isBefore(startOfDay(day), today)
+  const getDayData = (dateStr) => availability[dateStr] ?? { status: 'unavailable_all_day', windows: [] }
+  const getDayStatus = (dateStr) => getDayData(dateStr).status
 
   const handleDayClick = (day) => {
     if (isPast(day)) return
+    const dateStr = format(day, 'yyyy-MM-dd')
     setSelectedDate(day)
-    setShowBlockForm(false)
+    setDayDraft({ ...getDayData(dateStr) })
   }
 
-  const handleSaveBlock = async () => {
-    if (!selectedDate) return
+  const setDraftStatus = (status) => {
+    setDayDraft(d => ({ ...d, status, windows: status === 'partial' ? (d.windows ?? []) : [] }))
+  }
+
+  const addWindow = () => {
+    if (toMins(windowForm.start) >= toMins(windowForm.end)) {
+      toast.error('End time must be after start time'); return
+    }
+    setDayDraft(d => ({
+      ...d,
+      windows: [...(d.windows ?? []), { start: windowForm.start, end: windowForm.end }]
+        .sort((a, b) => toMins(a.start) - toMins(b.start))
+    }))
+    setWindowForm({ start: '09:00', end: '17:00' })
+  }
+
+  const removeWindow = (i) => setDayDraft(d => ({ ...d, windows: d.windows.filter((_, idx) => idx !== i) }))
+
+  const handleSave = async () => {
+    if (!selectedDate || !dayDraft) return
+    if (dayDraft.status === 'partial' && (!dayDraft.windows || dayDraft.windows.length === 0)) {
+      toast.error('Add at least one available time window, or choose "Unavailable all day"'); return
+    }
     setSaving(true)
-    await addBlock({
-      date: format(selectedDate, 'yyyy-MM-dd'),
-      type: blockForm.type,
-      allDay: blockForm.allDay,
-      startTime: blockForm.allDay ? null : blockForm.startTime,
-      endTime:   blockForm.allDay ? null : blockForm.endTime,
-      startLocation: blockForm.startLocation,
-      notes: blockForm.notes,
-    })
-    setShowBlockForm(false)
-    setBlockForm({ type: 'unavailable', allDay: false, startTime: '09:00', endTime: '17:00', startLocation: '', notes: '' })
-    setSaving(false)
+    try {
+      const dateStr = format(selectedDate, 'yyyy-MM-dd')
+      const updated = { ...availability, [dateStr]: dayDraft }
+      await setDoc(doc(db, 'users', user.uid, 'availability', 'data'), updated)
+      setAvailability(updated)
+      toast.success('Availability saved')
+    } catch (err) { toast.error('Failed to save: ' + err.message) }
+    finally { setSaving(false) }
   }
 
-  const selectedDateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null
-  const selectedBlocks  = selectedDateStr ? blocksForDate(selectedDateStr) : []
+  const handleClearDay = async () => {
+    if (!selectedDate) return
+    const dateStr = format(selectedDate, 'yyyy-MM-dd')
+    const updated = { ...availability }
+    delete updated[dateStr]
+    setSaving(true)
+    try {
+      await setDoc(doc(db, 'users', user.uid, 'availability', 'data'), updated)
+      setAvailability(updated)
+      setDayDraft({ status: 'unavailable_all_day', windows: [] })
+      toast.success('Day reset to unavailable')
+    } catch { toast.error('Failed to reset') }
+    finally { setSaving(false) }
+  }
 
   if (loading) return <div className={styles.center}><Spinner size="lg" /></div>
+
+  const selectedDateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null
 
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>My Availability</h1>
         <p className={styles.sub}>
-          You are considered <strong>available</strong> by default. Add blocks for times you are unavailable or to mark specific windows as explicitly open.
+          You are <strong>unavailable by default</strong>. Mark the days and times when you are available to work games.
         </p>
       </div>
 
@@ -106,214 +160,122 @@ export default function OfficialAvailability() {
             </div>
             <div className={styles.calGrid}>
               {calDays.map(day => {
-                const dateStr   = format(day, 'yyyy-MM-dd')
-                const summary   = dateSummary(dateStr)
-                const past      = isPast(day)
+                const dateStr    = format(day, 'yyyy-MM-dd')
+                const status     = getDayStatus(dateStr)
+                const past       = isPast(day)
                 const isSelected = selectedDate && isSameDay(day, selectedDate)
-                const inMonth   = isSameMonth(day, currentMonth)
-
+                const inMonth    = isSameMonth(day, currentMonth)
+                const dotColor   = status === 'available_all_day' ? 'var(--green)'
+                                 : status === 'partial'           ? 'var(--blue)'
+                                 : null // unavailable = no dot (default = unavailable, no need to show)
                 return (
-                  <div
-                    key={dateStr}
+                  <div key={dateStr}
                     className={[
                       styles.calCell,
-                      !inMonth      ? styles.otherMonth : '',
-                      past          ? styles.pastDay    : '',
-                      isToday(day)  ? styles.today      : '',
-                      isSelected    ? styles.selected   : '',
+                      !inMonth     ? styles.otherMonth : '',
+                      past         ? styles.pastDay    : '',
+                      isToday(day) ? styles.today      : '',
+                      isSelected   ? styles.selected   : '',
                     ].join(' ')}
                     onClick={() => handleDayClick(day)}
-                    title={past ? 'Past dates cannot be edited' : undefined}
                   >
                     <span className={styles.calCellDate}>{format(day, 'd')}</span>
-                    {summary && !past && (
-                      <span
-                        className={styles.calCellDot}
-                        style={{
-                          background: isSelected || isToday(day)
-                            ? 'rgba(255,255,255,.8)'
-                            : summary === 'unavailable' ? 'var(--red)' : 'var(--teal)'
-                        }}
-                      />
+                    {dotColor && !past && (
+                      <span className={styles.calCellDot} style={{
+                        background: isSelected || isToday(day) ? 'rgba(255,255,255,.9)' : dotColor
+                      }} />
                     )}
                   </div>
                 )
               })}
             </div>
 
-            {/* Legend */}
             <div className={styles.legend}>
-              <div className={styles.legendItem}>
-                <div className={styles.legendDot} style={{ background: 'var(--color-border-strong)' }} />
-                <span>No blocks (available)</span>
-              </div>
-              <div className={styles.legendItem}>
-                <div className={styles.legendDot} style={{ background: 'var(--red)' }} />
-                <span>Has unavailable block</span>
-              </div>
-              <div className={styles.legendItem}>
-                <div className={styles.legendDot} style={{ background: 'var(--teal)' }} />
-                <span>Explicitly available</span>
-              </div>
+              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--color-border-strong)' }} /><span>Unavailable (default)</span></div>
+              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--green)' }} /><span>Available all day</span></div>
+              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--blue)' }} /><span>Partial availability</span></div>
             </div>
           </CardBody>
         </Card>
 
         {/* Day detail panel */}
         <div className={styles.detailPanel}>
-          {selectedDate ? (
+          {selectedDate && dayDraft ? (
             <Card>
               <CardHeader>
                 <CardTitle>{format(selectedDate, 'EEEE, MMMM d')}</CardTitle>
-                <Button size="sm" variant="primary" onClick={() => setShowBlockForm(v => !v)}>
-                  {showBlockForm ? 'Cancel' : '+ Add Block'}
-                </Button>
               </CardHeader>
               <CardBody>
-
-                {/* Default availability notice */}
-                <div className={styles.defaultNotice}>
-                  <span className={styles.defaultNoticeIcon}>ℹ️</span>
-                  <span>You are <strong>available all day</strong> by default. Add blocks below for specific unavailable or available windows.</span>
+                {/* Status selector */}
+                <div className={styles.statusLabel}>Day Status</div>
+                <div className={styles.statusOptions}>
+                  {Object.entries(STATUS_META).map(([key, meta]) => (
+                    <div key={key}
+                      className={[styles.statusOption, dayDraft.status === key ? styles.statusActive : ''].join(' ')}
+                      style={dayDraft.status === key ? { background: meta.bg, borderColor: meta.color } : {}}
+                      onClick={() => setDraftStatus(key)}
+                    >
+                      <div className={styles.statusRadio} style={dayDraft.status === key ? { background: meta.color, borderColor: meta.color } : {}}>
+                        {dayDraft.status === key && <div className={styles.statusRadioDot} />}
+                      </div>
+                      <div>
+                        <div className={styles.statusOptionLabel}>{meta.icon} {meta.label}</div>
+                      </div>
+                    </div>
+                  ))}
                 </div>
 
-                {/* Add block form */}
-                {showBlockForm && (
-                  <div className={styles.blockForm}>
-                    {/* Block type selector */}
-                    <div className={styles.typeSelector}>
-                      {Object.entries(BLOCK_TYPES).map(([type, meta]) => (
-                        <button
-                          key={type}
-                          className={[styles.typeBtn, blockForm.type === type ? styles.typeBtnActive : ''].join(' ')}
-                          style={blockForm.type === type ? { background: meta.bg, borderColor: meta.border, color: meta.color } : {}}
-                          onClick={() => setBlockForm(f => ({ ...f, type }))}
-                        >
-                          {meta.icon} {meta.label}
-                        </button>
-                      ))}
-                    </div>
+                {/* Partial — time windows */}
+                {dayDraft.status === 'partial' && (
+                  <div className={styles.windowsSection}>
+                    <div className={styles.windowsLabel}>Available Time Windows</div>
+                    <p className={styles.windowsHint}>Add one or more windows when you are available. Times outside these windows are unavailable.</p>
 
-                    {/* All day toggle */}
-                    <div className={styles.allDayRow}>
-                      <label className={styles.allDayLabel}>
-                        <input
-                          type="checkbox"
-                          checked={blockForm.allDay}
-                          onChange={e => setBlockForm(f => ({ ...f, allDay: e.target.checked }))}
-                          className={styles.allDayCheck}
-                        />
-                        All day
-                      </label>
-                    </div>
-
-                    {/* Time range — hidden when all day */}
-                    {!blockForm.allDay && (
-                      <div className={styles.formRow}>
-                        <div className={styles.formField}>
-                          <label className={styles.formLabel}>From</label>
-                          <input
-                            className={styles.formInput}
-                            type="time"
-                            value={blockForm.startTime}
-                            onChange={e => setBlockForm(f => ({ ...f, startTime: e.target.value }))}
-                          />
-                        </div>
-                        <div className={styles.formField}>
-                          <label className={styles.formLabel}>To</label>
-                          <input
-                            className={styles.formInput}
-                            type="time"
-                            value={blockForm.endTime}
-                            onChange={e => setBlockForm(f => ({ ...f, endTime: e.target.value }))}
-                          />
-                        </div>
-                      </div>
+                    {(dayDraft.windows ?? []).length === 0 && (
+                      <div className={styles.noWindows}>No windows added yet — add your available times below.</div>
                     )}
 
-                    {/* Available block: show starting location */}
-                    {blockForm.type === 'available' && (
-                      <div className={styles.formField}>
-                        <label className={styles.formLabel}>
-                          Starting Location <span className={styles.formOptional}>(overrides home for mileage)</span>
-                        </label>
-                        <input
-                          className={styles.formInput}
-                          placeholder="e.g. 123 Main St, Nashville TN"
-                          value={blockForm.startLocation}
-                          onChange={e => setBlockForm(f => ({ ...f, startLocation: e.target.value }))}
-                        />
+                    {(dayDraft.windows ?? []).map((w, i) => (
+                      <div key={i} className={styles.windowRow}>
+                        <span className={styles.windowTime}>✅ {w.start} – {w.end}</span>
+                        <button className={styles.windowRemove} onClick={() => removeWindow(i)}>✕</button>
                       </div>
-                    )}
+                    ))}
 
-                    <div className={styles.formField}>
-                      <label className={styles.formLabel}>Notes <span className={styles.formOptional}>(optional)</span></label>
-                      <input
-                        className={styles.formInput}
-                        placeholder={blockForm.type === 'unavailable' ? 'e.g. Doctor appointment' : 'e.g. Available after my shift'}
-                        value={blockForm.notes}
-                        onChange={e => setBlockForm(f => ({ ...f, notes: e.target.value }))}
-                      />
-                    </div>
-
-                    <Button variant="primary" fullWidth loading={saving} onClick={handleSaveBlock}>
-                      Save Block
-                    </Button>
-                  </div>
-                )}
-
-                {/* Existing blocks */}
-                {selectedBlocks.length === 0 && !showBlockForm && (
-                  <div className={styles.noBlocks}>
-                    No blocks added — you are available all day. Tap <strong>+ Add Block</strong> to add a specific unavailable or available window.
-                  </div>
-                )}
-
-                {selectedBlocks.length > 0 && (
-                  <div className={styles.blockList}>
-                    {selectedBlocks.map(block => {
-                      const meta = BLOCK_TYPES[block.type] ?? BLOCK_TYPES.unavailable
-                      return (
-                        <div
-                          key={block.id}
-                          className={styles.blockItem}
-                          style={{ background: meta.bg, borderColor: meta.border }}
-                        >
-                          <div className={styles.blockItemLeft}>
-                            <div className={styles.blockTypeLabel} style={{ color: meta.color }}>
-                              {meta.icon} {meta.label}
-                            </div>
-                            <div className={styles.blockTime}>
-                              {block.allDay
-                                ? 'All day'
-                                : `${block.startTime ?? ''} – ${block.endTime ?? ''}`
-                              }
-                            </div>
-                            {block.startLocation && (
-                              <div className={styles.blockDetail}>📍 {block.startLocation}</div>
-                            )}
-                            {block.notes && (
-                              <div className={styles.blockDetail}>{block.notes}</div>
-                            )}
-                          </div>
-                          <button className={styles.blockRemove} onClick={() => removeBlock(block.id)}>✕</button>
+                    <div className={styles.windowForm}>
+                      <div className={styles.windowFormRow}>
+                        <div className={styles.windowFormField}>
+                          <label className={styles.windowFormLabel}>From</label>
+                          <input type="time" className={styles.timeInput} value={windowForm.start}
+                            onChange={e => setWindowForm(f => ({ ...f, start: e.target.value }))} />
                         </div>
-                      )
-                    })}
+                        <div className={styles.windowFormField}>
+                          <label className={styles.windowFormLabel}>To</label>
+                          <input type="time" className={styles.timeInput} value={windowForm.end}
+                            onChange={e => setWindowForm(f => ({ ...f, end: e.target.value }))} />
+                        </div>
+                        <Button variant="secondary" size="sm" onClick={addWindow} style={{ marginTop: 20 }}>+ Add</Button>
+                      </div>
+                    </div>
                   </div>
                 )}
+
+                {/* Save / reset */}
+                <div className={styles.dayActions}>
+                  <Button variant="primary" fullWidth loading={saving} onClick={handleSave}>
+                    Save Availability
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleClearDay}>
+                    Reset to Unavailable
+                  </Button>
+                </div>
               </CardBody>
             </Card>
           ) : (
-            <Card>
-              <CardBody>
-                <EmptyState
-                  icon="📅"
-                  title="Select a day"
-                  message="Click any future date on the calendar to add availability blocks."
-                />
-              </CardBody>
-            </Card>
+            <Card><CardBody>
+              <EmptyState icon="📅" title="Select a day"
+                message="Click any future date on the calendar to set your availability." />
+            </CardBody></Card>
           )}
         </div>
       </div>

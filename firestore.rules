@@ -13,6 +13,12 @@ service cloud.firestore {
       allow create: if isOwner(uid);
       allow update: if isOwner(uid);
       allow delete: if false;
+
+      // Availability — official writes own, all authenticated can read
+      match /availability/{docId} {
+        allow read:  if isAuth();
+        allow write: if isAuth() && request.auth.uid == uid;
+      }
     }
 
     // ── Game Groups ───────────────────────────────────────────────────────────

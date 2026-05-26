@@ -6,7 +6,7 @@ import { useRoster } from '@/hooks/useRoster'
 import { db } from '@/lib/firebase'
 import {
   collection, query, where, onSnapshot,
-  doc, updateDoc, arrayUnion, serverTimestamp, writeBatch
+  doc, updateDoc, arrayUnion, serverTimestamp, writeBatch, getDoc
 } from 'firebase/firestore'
 import { assignOfficial } from '@/services/firestore'
 import { startThread, sendMessage, getThreadId } from '@/services/messaging'
@@ -20,6 +20,34 @@ import styles from './SchedAssign.module.css'
 
 const HOCKEY_ROLES = ['Referee 1', 'Referee 2', 'Linesman 1', 'Linesman 2', 'Scorekeeper']
 
+// Time helpers
+const toMins = (t) => { const [h, m] = (t ?? '00:00').split(':').map(Number); return h * 60 + m }
+
+// Check if official's availability covers the game window + 1hr buffer
+const checkAvailability = (dayData, gameStartTime, gameDuration) => {
+  if (!dayData || dayData.status === 'unavailable_all_day') return 'unavailable'
+  if (dayData.status === 'available_all_day') return 'available'
+  if (dayData.status === 'partial') {
+    const bufferMins = 60
+    const gameStart  = toMins(gameStartTime)
+    const gameEnd    = gameStart + (gameDuration ?? 1.5) * 60
+    const neededStart = gameStart - bufferMins
+    const neededEnd   = gameEnd   + bufferMins
+    const covered = (dayData.windows ?? []).some(w =>
+      toMins(w.start) <= neededStart && toMins(w.end) >= neededEnd
+    )
+    return covered ? 'available' : 'insufficient'
+  }
+  return 'unavailable'
+}
+
+const AVAIL_META = {
+  available:   { label: '✓ Available',                color: 'var(--green)',  btnVariant: 'primary' },
+  insufficient:{ label: '⚠ Outside buffer',           color: 'var(--orange)', btnVariant: 'ghost'   },
+  unavailable: { label: '✗ Unavailable',              color: 'var(--color-muted)', btnVariant: 'ghost' },
+  unknown:     { label: 'No availability set',        color: 'var(--color-muted)', btnVariant: 'ghost' },
+}
+
 export default function SchedAssign() {
   const { user, profile } = useAuth()
   const { groups } = useGameGroups()
@@ -28,6 +56,8 @@ export default function SchedAssign() {
   const { games, open, loading: gamesLoading } = useGroupGames(selectedGroupId)
   const [selectedGame, setSelectedGame] = useState(null)
   const [selectedRole, setSelectedRole] = useState('Scorekeeper')
+  const [officialAvailability, setOfficialAvailability] = useState({}) // { uid: dayData }
+  const [loadingAvail, setLoadingAvail] = useState(false)
   const [assigning, setAssigning] = useState(null)
   const [approving, setApproving] = useState(null)
   const [tab, setTab] = useState('requests') // 'requests' | 'manual'
@@ -40,6 +70,27 @@ export default function SchedAssign() {
     const live = games.find(g => g.id === selectedGame.id)
     if (live) { setSelectedGame(live); setGameRequests(live.requests ?? []) }
   }, [games, selectedGame?.id])
+
+  // Load availability for all roster officials when a game is selected
+  useEffect(() => {
+    if (!selectedGame || !roster.length) return
+    const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+    const dateStr  = format(gameDate, 'yyyy-MM-dd')
+    setLoadingAvail(true)
+    Promise.all(
+      roster.map(async o => {
+        const uid = o.uid ?? o.id
+        try {
+          const snap = await getDoc(doc(db, 'users', uid, 'availability', 'data'))
+          const dayData = snap.exists() ? (snap.data()[dateStr] ?? null) : null
+          return [uid, dayData]
+        } catch { return [uid, null] }
+      })
+    ).then(entries => {
+      setOfficialAvailability(Object.fromEntries(entries))
+      setLoadingAvail(false)
+    })
+  }, [selectedGame?.id, roster.length])
 
   useEffect(() => {
     if (groups.length && !selectedGroupId) setSelectedGroupId(groups[0].id)
@@ -308,40 +359,44 @@ export default function SchedAssign() {
 
                   {tab === 'manual' && (
                     <div>
+                      {loadingAvail && <div style={{ textAlign:'center', padding:16 }}><Spinner size="sm" /></div>}
                       {roster.length === 0 ? (
                         <EmptyState icon="👥" title="No officials on your roster" message="Invite officials to your roster first." />
                       ) : (
-                        roster.map(official => {
-                          const uid = official.uid ?? official.id
-                          const assigned = selectedGame.assignedUids?.includes(uid)
-                          const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
-                          const gameDateStr = gameDate.toISOString().slice(0, 10)
-                          const avail = official.availability ?? {}
-                          const isAvailable   = avail[gameDateStr] === true || avail[gameDateStr] === 'available'
-                          const isUnavailable = avail[gameDateStr] === false || avail[gameDateStr] === 'unavailable'
-                          return (
-                            <div key={uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
-                              <Avatar name={official.displayName} size="sm" />
-                              <div className={styles.officialInfo}>
-                                <div className={styles.officialName}>{official.displayName}</div>
-                                <div className={styles.officialMeta}>
-                                  {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
-                                  {isAvailable   && <span style={{ color:'var(--teal)', marginLeft:8, fontWeight:700 }}>✓ Available</span>}
-                                  {isUnavailable && <span style={{ color:'var(--red)',  marginLeft:8, fontWeight:700 }}>✗ Unavailable</span>}
-                                  {!isAvailable && !isUnavailable && <span style={{ color:'var(--color-muted)', marginLeft:8 }}>No availability set</span>}
+                        <>
+                          <div style={{ fontSize:12, color:'var(--color-muted)', padding:'6px 0 10px', lineHeight:1.5 }}>
+                            ⏱ Showing availability with a <strong>1-hour buffer</strong> around game time.
+                          </div>
+                          {roster.map(official => {
+                            const uid = official.uid ?? official.id
+                            const assigned = selectedGame.assignedUids?.includes(uid)
+                            const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+                            const gameTimeStr = format(gameDate, 'HH:mm')
+                            const dayData = officialAvailability[uid]
+                            const availStatus = dayData === undefined ? 'unknown'
+                              : checkAvailability(dayData, gameTimeStr, selectedGame.duration ?? 1.5)
+                            const availMeta = AVAIL_META[availStatus]
+                            return (
+                              <div key={uid} className={[styles.officialRow, assigned ? styles.officialAssigned : ''].join(' ')}>
+                                <Avatar name={official.displayName} size="sm" />
+                                <div className={styles.officialInfo}>
+                                  <div className={styles.officialName}>{official.displayName}</div>
+                                  <div className={styles.officialMeta}>
+                                    {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
+                                    <span style={{ marginLeft:8, fontWeight:600, color:availMeta.color }}>{availMeta.label}</span>
+                                  </div>
                                 </div>
+                                {assigned ? <Badge variant="green">Assigned</Badge> : (
+                                  <Button size="sm" variant={availMeta.btnVariant}
+                                    loading={assigning === uid}
+                                    onClick={() => handleManualAssign(official)}>
+                                    {availStatus === 'unavailable' ? 'Unavailable' : availStatus === 'insufficient' ? 'Assign Anyway' : 'Assign'}
+                                  </Button>
+                                )}
                               </div>
-                              {assigned ? <Badge variant="green">Assigned</Badge> : (
-                                <Button size="sm" variant={isUnavailable ? 'ghost' : 'primary'}
-                                  loading={assigning === uid}
-                                  onClick={() => handleManualAssign(official)}
-                                  title={isUnavailable ? 'Official marked themselves unavailable' : ''}>
-                                  {isUnavailable ? 'Assign Anyway' : 'Assign'}
-                                </Button>
-                              )}
-                            </div>
-                          )
-                        })
+                            )
+                          })}
+                        </>
                       )}
                     </div>
                   )}
