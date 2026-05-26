@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useAuth } from '@/context/AuthContext'
+import { useSubRoles } from '@/hooks/useSubRoles'
 import { useGameGroups } from '@/hooks/useGameGroups'
 import { useGroupGames } from '@/hooks/useGames'
 import { useRoster } from '@/hooks/useRoster'
@@ -50,6 +51,7 @@ const AVAIL_META = {
 
 export default function SchedAssign() {
   const { user, profile } = useAuth()
+  const { isRefScheduler, isSKScheduler, isBothScheduler } = useSubRoles()
   const { groups } = useGameGroups()
   const { roster } = useRoster()
   const [selectedGroupId, setSelectedGroupId] = useState('')
@@ -63,26 +65,43 @@ export default function SchedAssign() {
   const [tab, setTab]                   = useState('requests')
   const [showUnavailable, setShowUnavailable] = useState(false)
 
-  // Build crew slot list from game's requested slots
+  // Build crew slot list — only show slots this scheduler is responsible for
   const buildCrewSlots = (game) => {
     const slots = []
     const assigned = game.assignedOfficials ?? []
     const refs  = Number(game.refs  ?? 0)
     const lines = Number(game.linesmen ?? 0)
     const sks   = Number(game.scorekeepers ?? 0)
-    for (let i = 1; i <= refs;  i++) {
-      const role = refs === 1 ? 'Referee' : `Referee ${i}`
-      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
+
+    // Referee slots — only for ref schedulers
+    if (isRefScheduler || isBothScheduler) {
+      for (let i = 1; i <= refs;  i++) {
+        const role = refs === 1 ? 'Referee' : `Referee ${i}`
+        slots.push({ role, type: 'ref', assignedOfficial: assigned.find(o => o.role === role) ?? null })
+      }
+      for (let i = 1; i <= lines; i++) {
+        const role = lines === 1 ? 'Linesman' : `Linesman ${i}`
+        slots.push({ role, type: 'ref', assignedOfficial: assigned.find(o => o.role === role) ?? null })
+      }
     }
-    for (let i = 1; i <= lines; i++) {
-      const role = lines === 1 ? 'Linesman' : `Linesman ${i}`
-      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
+
+    // Scorekeeper slots — only for SK schedulers
+    if (isSKScheduler || isBothScheduler) {
+      for (let i = 1; i <= sks; i++) {
+        const role = sks === 1 ? 'Scorekeeper' : `Scorekeeper ${i}`
+        slots.push({ role, type: 'sk', assignedOfficial: assigned.find(o => o.role === role) ?? null })
+      }
     }
-    for (let i = 1; i <= sks;   i++) {
-      const role = sks === 1 ? 'Scorekeeper' : `Scorekeeper ${i}`
-      slots.push({ role, assignedOfficial: assigned.find(o => o.role === role) ?? null })
-    }
+
     return slots
+  }
+
+  // Filter roster to only show officials relevant to this scheduler's type
+  const getRelevantOfficials = () => {
+    if (isBothScheduler) return roster
+    if (isRefScheduler)  return roster.filter(o => (o.subRoles ?? []).includes('referee'))
+    if (isSKScheduler)   return roster.filter(o => (o.subRoles ?? []).includes('scorekeeper'))
+    return roster
   }
 
   const isSlotFull = (game, role) => {
@@ -362,35 +381,48 @@ export default function SchedAssign() {
                   })()}
                 </div>
 
-                {/* Crew slots — show filled/open per role based on game requirements */}
+                {/* Crew slots */}
                 <div className={styles.crewSlots}>
-                  <div className={styles.crewSlotsTitle}>Crew</div>
-                  <div className={styles.crewSlotsList}>
-                    {buildCrewSlots(selectedGame).map((slot, i) => {
-                      const filled = slot.assignedOfficial
-                      return (
-                        <div key={i} className={[styles.crewSlot, filled ? styles.crewSlotFilled : styles.crewSlotEmpty].join(' ')}>
-                          <div className={styles.crewSlotRole}>{slot.role}</div>
-                          {filled ? (
-                            <div className={styles.crewSlotAssigned}>
-                              <span className={styles.crewSlotName}>{filled.name}</span>
-                              <button className={styles.unassignBtn}
-                                onClick={() => handleUnassign(filled.uid, slot.role)}
-                                title="Unassign">✕</button>
-                            </div>
-                          ) : (
-                            <div className={styles.crewSlotOpen}>
-                              <span className={styles.crewSlotOpenLabel}>Open</span>
-                              <button className={styles.assignToSlotBtn}
-                                onClick={() => setSelectedRole(slot.role)}>
-                                {selectedRole === slot.role ? '← Assigning' : 'Select'}
-                              </button>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+                  <div className={styles.crewSlotsTitle}>
+                    {isBothScheduler ? 'Full Crew' : isRefScheduler ? 'Referee Slots' : 'Scorekeeper Slots'}
+                    {!isBothScheduler && (
+                      <span style={{ marginLeft: 8, fontSize: 11, color: 'var(--color-muted)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+                        (you manage {isRefScheduler ? 'refs & linesmen' : 'scorekeepers'} only)
+                      </span>
+                    )}
                   </div>
+                  {buildCrewSlots(selectedGame).length === 0 ? (
+                    <div style={{ fontSize: 13, color: 'var(--color-muted)', fontStyle: 'italic', padding: '4px 0' }}>
+                      No {isRefScheduler ? 'referee' : 'scorekeeper'} slots requested for this game.
+                    </div>
+                  ) : (
+                    <div className={styles.crewSlotsList}>
+                      {buildCrewSlots(selectedGame).map((slot, i) => {
+                        const filled = slot.assignedOfficial
+                        return (
+                          <div key={i} className={[styles.crewSlot, filled ? styles.crewSlotFilled : styles.crewSlotEmpty].join(' ')}>
+                            <div className={styles.crewSlotRole}>{slot.role}</div>
+                            {filled ? (
+                              <div className={styles.crewSlotAssigned}>
+                                <span className={styles.crewSlotName}>{filled.name}</span>
+                                <button className={styles.unassignBtn}
+                                  onClick={() => handleUnassign(filled.uid, slot.role)}
+                                  title="Unassign">✕</button>
+                              </div>
+                            ) : (
+                              <div className={styles.crewSlotOpen}>
+                                <span className={styles.crewSlotOpenLabel}>Open</span>
+                                <button className={styles.assignToSlotBtn}
+                                  onClick={() => setSelectedRole(slot.role)}>
+                                  {selectedRole === slot.role ? '← Assigning' : 'Select'}
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* Tabs */}
@@ -459,8 +491,8 @@ export default function SchedAssign() {
                             </label>
                           </div>
 
-                          {/* Official list — filtered by availability */}
-                          {roster
+                          {/* Official list — filtered by availability AND scheduler type */}
+                          {getRelevantOfficials()
                             .filter(official => {
                               const uid = official.uid ?? official.id
                               const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
