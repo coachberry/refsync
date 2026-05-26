@@ -151,7 +151,29 @@ export default function SchedAssign() {
     if (live) { setSelectedGame(live); setGameRequests(live.requests ?? []) }
   }, [games, selectedGame?.id])
 
-  // Load availability for all roster officials when a game is selected
+  // Auto-assign via Cloud Function
+  const handleAutoAssign = async (game) => {
+    setAssigning('auto')
+    try {
+      const schedulerType = isRefScheduler && !isBothScheduler ? 'ref_scheduler'
+                          : isSKScheduler  && !isBothScheduler ? 'sk_scheduler'
+                          : 'both'
+      const res = await fetch('https://autoassigngame-hmh3r2a4ra-uc.a.run.app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: game.id, schedulerId: user.uid, schedulerType }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Auto-assign failed')
+      if (data.assigned?.length === 0) {
+        toast('No available officials found for this time slot', { icon: '⚠️' })
+      } else {
+        toast.success(`${data.assigned.length} official${data.assigned.length > 1 ? 's' : ''} auto-assigned!`)
+      }
+    } catch (err) {
+      toast.error('Auto-assign failed: ' + err.message)
+    } finally { setAssigning(null) }
+  }
   useEffect(() => {
     if (!selectedGame || !roster.length) return
     const gameDate = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
@@ -421,14 +443,27 @@ export default function SchedAssign() {
               <Card>
                 <CardHeader>
                   <CardTitle>{selectedGame.homeTeam} vs {selectedGame.awayTeam}</CardTitle>
-                  <Badge variant={statusBadge(selectedGame.status)}>{selectedGame.status}</Badge>
+                  <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                    <Badge variant={statusBadge(selectedGame.status)}>{selectedGame.status}</Badge>
+                    <Button size="sm" variant="teal" loading={assigning === 'auto'}
+                      onClick={() => handleAutoAssign(selectedGame)}>
+                      ⚡ Auto-Assign
+                    </Button>
+                  </div>
                 </CardHeader>
 
                 {/* Game details */}
                 <div className={styles.gameDetails}>
                   {(() => {
                     const gd = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
-                    return <><span>📅 {format(gd, 'EEE, MMM d · h:mm a')}</span><span>📍 {selectedGame.venue}</span>{selectedGame.duration && <span>⏱ {selectedGame.duration}hr slot</span>}<span>💰 SK Pay: ${(selectedGame.payRate ?? 0).toFixed(2)}</span></>
+                    return (
+                      <>
+                        <span>📅 {format(gd, 'EEE, MMM d · h:mm a')}</span>
+                        <span>📍 {selectedGame.venue}</span>
+                        {selectedGame.duration && <span>⏱ {selectedGame.duration}hr</span>}
+                        {selectedGame.division && <span>🎯 {selectedGame.division}</span>}
+                      </>
+                    )
                   })()}
                 </div>
 

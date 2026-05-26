@@ -19,6 +19,7 @@ export default function ProfileEdit() {
   const [form, setForm] = useState({
     displayName:  '',
     bio:          '',
+    phone:        '',
     homeAddress:  '',
     certLevel:    '',
     certNumber:   '',
@@ -30,6 +31,7 @@ export default function ProfileEdit() {
       setForm({
         displayName:  profile.displayName ?? '',
         bio:          profile.bio ?? '',
+        phone:        profile.phone ?? '',
         homeAddress:  profile.officialProfile?.homeAddress ?? '',
         certLevel:    profile.officialProfile?.certLevel ?? '',
         certNumber:   profile.officialProfile?.certNumber ?? '',
@@ -64,6 +66,7 @@ export default function ProfileEdit() {
       await updateUser(user.uid, {
         displayName: form.displayName,
         bio: form.bio,
+        phone: form.phone,
         officialProfile: {
           ...profile?.officialProfile,
           homeAddress:  form.homeAddress,
@@ -108,6 +111,7 @@ export default function ProfileEdit() {
         <CardHeader><CardTitle>Basic Info</CardTitle></CardHeader>
         <CardBody>
           <Input label="Full Name *" value={form.displayName} onChange={e => set('displayName', e.target.value)} />
+          <Input label="Mobile Phone" type="tel" placeholder="+1 (615) 555-0123" hint="Used for SMS game reminders. Include country code." value={form.phone} onChange={e => set('phone', e.target.value)} />
           <Textarea label="Bio" rows={3} placeholder="Tell schedulers a bit about yourself…" value={form.bio} onChange={e => set('bio', e.target.value)} />
         </CardBody>
       </Card>

@@ -3,7 +3,7 @@ import { useAuth } from '@/context/AuthContext'
 import { useSubRoles } from '@/hooks/useSubRoles'
 import { useOfficialGames } from '@/hooks/useGames'
 import { useOpenGames } from '@/hooks/useOpenGames'
-import { respondToAssignment } from '@/services/firestore'
+import { respondToAssignment, generateCalendarToken } from '@/services/firestore'
 import { db } from '@/lib/firebase'
 import { doc, updateDoc, arrayUnion, serverTimestamp } from 'firebase/firestore'
 import { Card, CardBody, Badge, statusBadge, EmptyState } from '@/components/ui'
@@ -15,6 +15,7 @@ import { format } from 'date-fns'
 import styles from './OfficialSchedule.module.css'
 
 const TABS = ['My Schedule', 'Request Games', 'My Requests']
+const CALENDAR_FUNC_URL = 'https://officialcalendarfeed-hmh3r2a4ra-uc.a.run.app'
 
 export default function OfficialSchedule() {
   const { user, profile } = useAuth()
@@ -29,6 +30,27 @@ export default function OfficialSchedule() {
   const [requesting, setRequesting] = useState(null)
   const [editingRequestId, setEditingRequestId] = useState(null)
   const [editNoteText, setEditNoteText] = useState('')
+  const [generatingToken, setGeneratingToken] = useState(false)
+
+  const calendarToken = profile?.calendarToken
+  const calendarUrl   = calendarToken
+    ? `${CALENDAR_FUNC_URL}?uid=${user?.uid}&token=${calendarToken}`
+    : null
+
+  const handleGenerateCalendarLink = async () => {
+    setGeneratingToken(true)
+    try {
+      await generateCalendarToken(user.uid)
+      toast.success('Calendar link generated!')
+    } catch { toast.error('Failed to generate link') }
+    finally { setGeneratingToken(false) }
+  }
+
+  const copyCalendarUrl = () => {
+    if (!calendarUrl) return
+    navigator.clipboard.writeText(calendarUrl)
+    toast.success('Calendar URL copied!')
+  }
 
   // ── Request a game ──────────────────────────────────────────────────────────
   const handleRequest = async (game) => {
@@ -120,6 +142,39 @@ export default function OfficialSchedule() {
           </button>
         ))}
       </div>
+
+      {/* Calendar sync */}
+      {activeTab === 'My Schedule' && (
+        <Card>
+          <CardBody>
+            <div style={{ display:'flex', alignItems:'flex-start', gap:14, flexWrap:'wrap' }}>
+              <div style={{ fontSize:26 }}>📅</div>
+              <div style={{ flex:1 }}>
+                <div style={{ fontSize:14, fontWeight:700, marginBottom:3 }}>Sync to Your Phone Calendar</div>
+                <div style={{ fontSize:12.5, color:'var(--color-muted)', lineHeight:1.5, marginBottom:10 }}>
+                  Subscribe once and your games automatically appear in Apple Calendar, Google Calendar, or Outlook.
+                </div>
+                {calendarUrl ? (
+                  <div style={{ display:'flex', gap:8, flexWrap:'wrap' }}>
+                    <Button variant="teal" size="sm" onClick={copyCalendarUrl}>📋 Copy URL</Button>
+                    <a href={`webcal://${calendarUrl.replace('https://','')}`} style={{ textDecoration:'none' }}>
+                      <Button variant="secondary" size="sm" onClick={() => {}}>🍎 Apple Calendar</Button>
+                    </a>
+                    <a href={`https://calendar.google.com/calendar/render?cid=${encodeURIComponent(calendarUrl)}`} target="_blank" rel="noreferrer" style={{ textDecoration:'none' }}>
+                      <Button variant="secondary" size="sm" onClick={() => {}}>📆 Google Calendar</Button>
+                    </a>
+                    <Button variant="ghost" size="sm" loading={generatingToken} onClick={handleGenerateCalendarLink}>Regenerate</Button>
+                  </div>
+                ) : (
+                  <Button variant="primary" size="sm" loading={generatingToken} onClick={handleGenerateCalendarLink}>
+                    Generate Calendar Link
+                  </Button>
+                )}
+              </div>
+            </div>
+          </CardBody>
+        </Card>
+      )}
 
       {/* ── My Schedule tab ── */}
       {activeTab === 'My Schedule' && (

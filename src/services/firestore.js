@@ -518,3 +518,10 @@ export const subscribeRFQsForGroup = (groupId, callback) => {
 
 export const updateRFQ = (id, data) =>
   updateDoc(doc(db, 'rfqs', id), { ...data, updatedAt: serverTimestamp() })
+
+// ─── CALENDAR TOKEN ───────────────────────────────────────────────────────────
+export const generateCalendarToken = async (uid) => {
+  const token = Math.random().toString(36).slice(2) + Math.random().toString(36).slice(2)
+  await updateDoc(doc(db, 'users', uid), { calendarToken: token })
+  return token
+}

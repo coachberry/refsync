@@ -1,0 +1,65 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13px; color: var(--color-muted); margin-top: 4px; line-height: 1.5; max-width: 520px; }
+
+.recentGame     { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--color-border); }
+.recentGame:last-child { border-bottom: none; }
+.recentGameInfo { flex: 1; }
+.recentGameTitle { font-size: 13.5px; font-weight: 600; }
+.recentGameMeta  { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+
+.reportRow      { display: flex; align-items: flex-start; gap: 12px; padding: 13px 18px; border-bottom: 1px solid var(--color-border); }
+.reportRow:last-child { border-bottom: none; }
+.reportInfo     { flex: 1; }
+.reportTitle    { font-size: 13.5px; font-weight: 600; }
+.reportMeta     { font-size: 12px; color: var(--color-muted); margin-top: 2px; }
+.reportDesc     { font-size: 12.5px; color: var(--color-text-2); margin-top: 4px; font-style: italic; }
+
+/* Form modal */
+.formNote {
+  background: rgba(255,97,0,.07); border: 1px solid rgba(255,97,0,.2);
+  border-radius: var(--radius); padding: 12px 14px; font-size: 12.5px;
+  color: #8b3a00; line-height: 1.5; margin-bottom: 18px;
+}
+
+.section  { margin-bottom: 16px; }
+.sLabel   { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--color-muted); margin-bottom: 10px; border-bottom: 1px solid var(--color-border); padding-bottom: 6px; }
+.label    { display: block; font-size: 12px; font-weight: 600; margin-bottom: 5px; color: var(--color-text); }
+.formRow  { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.formRow > * { min-width: 140px; }
+
+.select, .input {
+  width: 100%; padding: 8px 10px; border-radius: 8px;
+  border: 1.5px solid var(--color-border); background: var(--color-surface);
+  font-size: 13px; font-family: var(--font-body); color: var(--color-text);
+  outline: none; transition: border-color .14s; box-sizing: border-box;
+}
+.select:focus, .input:focus { border-color: var(--blue); }
+
+.textarea {
+  width: 100%; padding: 10px 12px; border-radius: 8px;
+  border: 1.5px solid var(--color-border); background: var(--color-surface);
+  font-size: 13px; font-family: var(--font-body); color: var(--color-text);
+  outline: none; resize: vertical; line-height: 1.5;
+  transition: border-color .14s; box-sizing: border-box;
+}
+.textarea:focus { border-color: var(--blue); }
+
+.typeGrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+@media (max-width: 560px) { .typeGrid { grid-template-columns: 1fr; } }
+.typeCard {
+  padding: 12px; border-radius: var(--radius); border: 1.5px solid var(--color-border);
+  background: var(--color-surface); cursor: pointer; transition: all .13s;
+}
+.typeCard:hover { background: var(--color-surface-2); }
+.typeCardActive { border-color: var(--blue); background: var(--blue-light); }
+.typeLabel { font-size: 13px; font-weight: 700; margin-bottom: 3px; }
+.typeDesc  { font-size: 11.5px; color: var(--color-muted); line-height: 1.4; }
+
+.gameInfoRow {
+  display: flex; gap: 16px; flex-wrap: wrap; font-size: 12.5px;
+  color: var(--color-muted); background: var(--color-surface-2);
+  border-radius: var(--radius); padding: 8px 12px; margin-bottom: 12px;
+}

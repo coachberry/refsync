@@ -24,6 +24,7 @@ import OfficialProfile      from '@/pages/official/OfficialProfile'
 import OfficialStats        from '@/pages/official/OfficialStats'
 import OfficialNews         from '@/pages/official/OfficialNews'
 import OfficialExpenses     from '@/pages/official/OfficialExpenses'
+import GameReportForm       from '@/pages/official/GameReportForm'
 
 // Scheduler pages
 import SchedDashboard  from '@/pages/scheduler/SchedDashboard'
@@ -78,6 +79,7 @@ export default function App() {
           <Route path="/official/news"         element={<OfficialNews />} />
           <Route path="/official/profile"      element={<OfficialProfile />} />
           <Route path="/official/stats"        element={<OfficialStats />} />
+          <Route path="/official/reports"      element={<GameReportForm />} />
           <Route path="/official/expenses"     element={<OfficialExpenses />} />
         </Route>
       </Route>

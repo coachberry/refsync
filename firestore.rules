@@ -118,6 +118,22 @@ service cloud.firestore {
       allow delete: if isAuth() && resource.data.schedulerId == request.auth.uid;
     }
 
+    // ── Game Reports ──────────────────────────────────────────────────────────
+    match /gameReports/{reportId} {
+      allow read:  if isAuth() && (
+        resource.data.submittedBy == request.auth.uid ||
+        hasRole('scheduler')
+      );
+      allow create: if isAuth() && hasRole('official');
+      allow update: if isAuth() && resource.data.submittedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // ── SMS Reminder dedup ────────────────────────────────────────────────────
+    match /smsReminders/{reminderId} {
+      allow read, write: if false; // Cloud Function only
+    }
+
     // ── Assignments ───────────────────────────────────────────────────────────
     match /assignments/{assignmentId} {
       allow read:   if isAuth() && (

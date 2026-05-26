@@ -299,97 +299,147 @@ function InvoicesTab({ invoices, onRefresh, schedulerId }) {
 
 // ── Payroll tab ───────────────────────────────────────────────────────────────
 function PayrollTab({ payments, roster, onRefresh, schedulerId }) {
-  const { user } = useAuth()
-  const [payingId, setPayingId] = useState(null)
+  const [payingId, setPayingId]     = useState(null)
   const [deletingId, setDeletingId] = useState(null)
 
-  const handlePay = async (payment) => {
-    setPayingId(payment.id)
+  const handlePayAll = async (uid, name, records) => {
+    const pending = records.filter(r => r.status === 'pending')
+    if (!pending.length) return
+    const total = pending.reduce((s, r) => s + (r.amount ?? 0), 0)
+    if (!window.confirm(`Pay ${name} $${total.toFixed(2)} for ${pending.length} game${pending.length > 1 ? 's' : ''} via Stripe?`)) return
+    setPayingId(uid)
     try {
       const { payOfficial } = await import('@/services/stripe')
-      await payOfficial(
-        payment.id,
-        schedulerId,
-        payment.officialId,
-        payment.amount,
-        payment.description ?? `Game pay — ${payment.gameCount ?? ''} games`
-      )
-      toast.success(`$${payment.amount} sent to ${payment.officialName}`)
+      await payOfficial(pending[0].id, schedulerId, uid, total, `${pending.length} games — ${name}`)
+      await Promise.all(pending.map(r =>
+        updateDoc(doc(db, 'payments', r.id), { status: 'paid', paidAt: new Date().toISOString() })
+      ))
+      toast.success(`$${total.toFixed(2)} sent to ${name}!`)
       onRefresh()
-    } catch (err) {
-      console.error(err)
-      toast.error('Payment failed: ' + (err.message ?? err))
-    } finally { setPayingId(null) }
+    } catch (err) { toast.error('Payment failed: ' + (err.message ?? err)) }
+    finally { setPayingId(null) }
   }
 
   const deletePayment = async (payment) => {
-    if (!window.confirm(`Delete this payment record for ${payment.officialName}?`)) return
+    if (!window.confirm(`Delete payroll record for ${payment.officialName}?`)) return
     setDeletingId(payment.id)
     try {
       await deleteDoc(doc(db, 'payments', payment.id))
-      toast.success('Payment record deleted')
-      onRefresh()
-    } catch (err) { toast.error('Failed to delete') }
+      toast.success('Record deleted'); onRefresh()
+    } catch { toast.error('Failed to delete') }
     finally { setDeletingId(null) }
   }
 
-  if (payments.length === 0) return (
-    <Card><CardBody><EmptyState icon="💰" title="No payroll records yet" message="Use '+ Pay Official' to record a payment to an official on your roster." /></CardBody></Card>
-  )
+  const pending = payments.filter(p => p.status === 'pending')
+  const paid    = payments.filter(p => p.status === 'paid')
+  const totalOwed = pending.reduce((s, p) => s + (p.amount ?? 0), 0)
+  const totalPaid = paid.reduce((s, p)    => s + (p.amount ?? 0), 0)
+
+  // Group pending by official
+  const byOfficial = {}
+  pending.forEach(p => {
+    if (!byOfficial[p.officialId]) byOfficial[p.officialId] = { name: p.officialName, records: [], total: 0 }
+    byOfficial[p.officialId].records.push(p)
+    byOfficial[p.officialId].total += p.amount ?? 0
+  })
 
   return (
     <Card>
-      <div style={{ padding: '10px 16px', background: 'var(--ice)', borderBottom: '1px solid var(--color-border)', fontSize: 12.5, color: '#1a6a9e' }}>
-        💳 Payments are sent via Stripe to officials' connected bank accounts. Officials must connect their Stripe account in Profile → Finances to receive payments.
+      <div style={{ padding:'10px 16px', background:'var(--ice)', borderBottom:'1px solid var(--color-border)', fontSize:12.5, color:'#1a6a9e' }}>
+        💳 Games auto-complete when end time passes. Payroll records are created automatically. Pay officials via Stripe Connect.
       </div>
-      <div className={styles.tableWrap}>
-        <table className={styles.table}>
-          <thead>
-            <tr>
-              <th>Official</th><th>Description</th><th>Games</th>
-              <th>Amount</th><th>Date</th><th>Status</th><th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {payments.map(pay => (
-              <tr key={pay.id}>
-                <td>
-                  <div className={styles.officialCell}>
-                    <Avatar name={pay.officialName} size="xs" />
-                    <span>{pay.officialName}</span>
-                  </div>
-                </td>
-                <td className={styles.muted}>{pay.description ?? '—'}</td>
-                <td className={styles.muted}>{pay.gameCount ?? '—'}</td>
-                <td className={styles.amount}>${(pay.amount ?? 0).toLocaleString()}</td>
-                <td className={styles.muted}>{pay.createdAt ? format(pay.createdAt.toDate?.() ?? new Date(pay.createdAt), 'MMM d') : '—'}</td>
-                <td>
-                  <Badge variant={pay.status === 'paid' ? 'green' : pay.status === 'processing' ? 'amber' : 'gray'}>
-                    {pay.status === 'paid' ? 'Paid' : pay.status === 'processing' ? 'Processing' : 'Pending'}
-                  </Badge>
-                </td>
-                <td>
-                  <div className={styles.rowActions}>
-                    {pay.status === 'pending' && (
-                      <Button size="sm" variant="teal" loading={payingId === pay.id} onClick={() => handlePay(pay)}>
-                        Pay via Stripe
-                      </Button>
-                    )}
-                    <Button size="sm" variant="danger" loading={deletingId === pay.id} onClick={() => deletePayment(pay)}>
-                      Delete
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+      {/* Summary */}
+      <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', borderBottom:'1px solid var(--color-border)' }}>
+        <div style={{ padding:'14px 18px', borderRight:'1px solid var(--color-border)' }}>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.6px', color:'var(--color-muted)', marginBottom:4 }}>Pending Payroll</div>
+          <div style={{ fontSize:26, fontWeight:800, fontFamily:'var(--font-display)', color:'var(--orange)' }}>${totalOwed.toFixed(2)}</div>
+          <div style={{ fontSize:12, color:'var(--color-muted)' }}>{pending.length} game{pending.length !== 1 ? 's' : ''} · {Object.keys(byOfficial).length} official{Object.keys(byOfficial).length !== 1 ? 's' : ''}</div>
+        </div>
+        <div style={{ padding:'14px 18px' }}>
+          <div style={{ fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.6px', color:'var(--color-muted)', marginBottom:4 }}>Paid Out</div>
+          <div style={{ fontSize:26, fontWeight:800, fontFamily:'var(--font-display)', color:'var(--green)' }}>${totalPaid.toFixed(2)}</div>
+          <div style={{ fontSize:12, color:'var(--color-muted)' }}>{paid.length} game{paid.length !== 1 ? 's' : ''} paid</div>
+        </div>
       </div>
+
+      {/* Pending — grouped by official */}
+      {pending.length === 0 ? (
+        <CardBody>
+          <EmptyState icon="✅" title="No pending payroll"
+            message="Payroll records appear automatically when games complete. Officials must connect Stripe to receive payments." />
+        </CardBody>
+      ) : (
+        <CardBody noPadding>
+          {Object.entries(byOfficial).map(([uid, data]) => (
+            <div key={uid} style={{ borderBottom:'1px solid var(--color-border)' }}>
+              <div style={{ display:'flex', alignItems:'center', gap:12, padding:'12px 16px', background:'var(--color-surface-2)' }}>
+                <Avatar name={data.name} size="sm" />
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:14, fontWeight:700 }}>{data.name}</div>
+                  <div style={{ fontSize:12, color:'var(--color-muted)' }}>
+                    {data.records.length} game{data.records.length !== 1 ? 's' : ''} · <strong style={{ color:'var(--orange)' }}>${data.total.toFixed(2)} owed</strong>
+                  </div>
+                </div>
+                <Button size="sm" variant="teal" loading={payingId === uid}
+                  onClick={() => handlePayAll(uid, data.name, data.records)}>
+                  Pay ${data.total.toFixed(2)}
+                </Button>
+              </div>
+              {data.records.map(rec => {
+                const gd = rec.gameDate?.toDate?.() ?? (rec.gameDate ? new Date(rec.gameDate) : null)
+                return (
+                  <div key={rec.id} style={{ display:'flex', alignItems:'center', gap:12, padding:'9px 16px 9px 44px', borderTop:'1px solid var(--color-border)' }}>
+                    <div style={{ flex:1 }}>
+                      <div style={{ fontSize:13, fontWeight:600 }}>{rec.homeTeam} vs {rec.awayTeam}</div>
+                      <div style={{ fontSize:12, color:'var(--color-muted)' }}>
+                        {gd ? format(gd, 'MMM d, yyyy · h:mm a') : '—'}{rec.division && ` · ${rec.division}`}{rec.role && ` · ${rec.role}`}
+                      </div>
+                    </div>
+                    <div style={{ fontSize:15, fontWeight:700, fontFamily:'var(--font-display)', color:'var(--orange)' }}>${(rec.amount ?? 0).toFixed(2)}</div>
+                    <button style={{ background:'none', border:'none', color:'var(--color-muted)', cursor:'pointer', fontSize:13, padding:'2px 6px' }}
+                      onClick={() => deletePayment(rec)} title="Delete">✕</button>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </CardBody>
+      )}
+
+      {/* Paid history */}
+      {paid.length > 0 && (
+        <>
+          <div style={{ padding:'10px 16px', background:'var(--color-surface-2)', borderTop:'1px solid var(--color-border)', fontSize:11, fontWeight:700, textTransform:'uppercase', letterSpacing:'.6px', color:'var(--color-muted)' }}>
+            Payment History
+          </div>
+          <CardBody noPadding>
+            <table className={styles.table}>
+              <thead><tr><th>Official</th><th>Game</th><th>Role</th><th>Date</th><th>Amount</th><th>Status</th></tr></thead>
+              <tbody>
+                {paid.map(pay => {
+                  const gd = pay.gameDate?.toDate?.() ?? (pay.gameDate ? new Date(pay.gameDate) : null)
+                  return (
+                    <tr key={pay.id}>
+                      <td>{pay.officialName ?? '—'}</td>
+                      <td className={styles.muted}>{pay.homeTeam} vs {pay.awayTeam}</td>
+                      <td className={styles.muted}>{pay.role}</td>
+                      <td className={styles.muted}>{gd ? format(gd, 'MMM d') : '—'}</td>
+                      <td className={styles.amount}>${(pay.amount ?? 0).toFixed(2)}</td>
+                      <td><Badge variant="green">Paid</Badge></td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </CardBody>
+        </>
+      )}
     </Card>
   )
 }
 
-// ── Create Invoice Modal ──────────────────────────────────────────────────────
+// ── Create Invoice Modal// ── Create Invoice Modal ──────────────────────────────────────────────────────
 function CreateInvoiceModal({ open, onClose, groups, schedulerId, schedulerName, onSaved, prefillRfq }) {
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState({

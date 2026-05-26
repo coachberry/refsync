@@ -1,4 +1,5 @@
 const { onRequest } = require('firebase-functions/v2/https')
+const { onSchedule } = require('firebase-functions/v2/scheduler')
 const { defineSecret } = require('firebase-functions/params')
 const admin  = require('firebase-admin')
 const stripe = require('stripe')
@@ -307,6 +308,412 @@ exports.sendEmailNotification = onRequest(
       res.json({ id: data.id })
     } catch (err) {
       console.error('sendEmailNotification error:', err)
+      res.status(500).json({ error: err.message })
+    }
+  })
+)
+
+// ── 7. Auto-complete games and generate payroll ───────────────────────────────
+exports.autoCompleteGames = onSchedule(
+  { schedule: 'every 15 minutes', timeZone: 'America/Chicago' },
+  async () => {
+    const now = admin.firestore.Timestamp.now()
+    console.log('autoCompleteGames running at', now.toDate().toISOString())
+
+    // Query all assigned/open games that haven't been completed yet
+    const gamesSnap = await db.collection('games')
+      .where('status', 'in', ['open', 'assigned'])
+      .get()
+
+    if (gamesSnap.empty) { console.log('No games to check'); return }
+
+    const batch = db.batch()
+    let completedCount = 0
+
+    for (const gameDoc of gamesSnap.docs) {
+      const game = gameDoc.data()
+
+      // Parse game date and duration
+      const gameDate = game.gameDate instanceof admin.firestore.Timestamp
+        ? game.gameDate.toDate()
+        : new Date(game.gameDate)
+
+      const durationHours = Number(game.duration ?? 1.5)
+      const endTime = new Date(gameDate.getTime() + durationHours * 60 * 60 * 1000)
+
+      // Only complete if end time has passed
+      if (endTime > now.toDate()) continue
+
+      console.log(`Completing game ${gameDoc.id}: ${game.homeTeam} vs ${game.awayTeam}`)
+
+      // Mark game as completed
+      batch.update(gameDoc.ref, {
+        status: 'completed',
+        completedAt: admin.firestore.FieldValue.serverTimestamp(),
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+
+      completedCount++
+
+      // Create a payroll record for each assigned official
+      const assignedOfficials = game.assignedOfficials ?? []
+      for (const official of assignedOfficials) {
+        if (!official.uid) continue
+
+        // Look up scheduler's pay rate for this official's role + division
+        let pay = Number(official.pay ?? 0)
+
+        // Find which scheduler owns this official's role
+        const schedulerId = official.role?.toLowerCase().includes('scorekeeper')
+          ? (game.skSchedulerId ?? game.schedulerId)
+          : game.schedulerId
+
+        // Try to look up from pricing sheet if pay is 0
+        if (pay === 0 && schedulerId) {
+          try {
+            const sheetSnap = await db
+              .collection('users').doc(schedulerId)
+              .collection('pricingSheet').doc('data')
+              .get()
+            if (sheetSnap.exists) {
+              const sheet = sheetSnap.data()
+              const rule = (sheet.rules ?? []).find(r =>
+                r.division?.toLowerCase() === game.division?.toLowerCase() &&
+                r.role === official.role
+              )
+              pay = rule?.pay ?? sheet.defaultPay ?? 0
+            }
+          } catch (e) { console.warn('Could not load pricing sheet:', e.message) }
+        }
+
+        const paymentRef = db.collection('payments').doc()
+        batch.set(paymentRef, {
+          officialId:   official.uid,
+          officialName: official.name,
+          schedulerId:  schedulerId ?? null,
+          gameId:       gameDoc.id,
+          groupId:      game.groupId ?? null,
+          groupName:    game.groupName ?? '',
+          homeTeam:     game.homeTeam,
+          awayTeam:     game.awayTeam,
+          gameDate:     game.gameDate,
+          venue:        game.venue ?? '',
+          division:     game.division ?? '',
+          role:         official.role,
+          amount:       pay,
+          description:  `${official.role} — ${game.homeTeam} vs ${game.awayTeam}`,
+          gameCount:    1,
+          status:       'pending',
+          createdAt:    admin.firestore.FieldValue.serverTimestamp(),
+        })
+
+        // Notify official they have a completed game
+        const notifRef = db.collection('notifications').doc()
+        batch.set(notifRef, {
+          uid:       official.uid,
+          type:      'payroll',
+          title:     '✅ Game Completed',
+          message:   `${game.homeTeam} vs ${game.awayTeam} has been completed. $${pay.toFixed(2)} added to your payroll.`,
+          read:      false,
+          link:      '/profile/finances',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        })
+      }
+    }
+
+    await batch.commit()
+    console.log(`Completed ${completedCount} games`)
+  }
+)
+
+// ── 8. iCal Feed — officials subscribe once, games stay in sync ───────────────
+exports.officialCalendarFeed = onRequest(
+  { cors: true },
+  async (req, res) => {
+    const uid = req.query.uid
+    const token = req.query.token
+    if (!uid || !token) { res.status(400).send('Missing uid or token'); return }
+
+    // Verify token matches stored token
+    const userSnap = await db.collection('users').doc(uid).get()
+    if (!userSnap.exists || userSnap.data().calendarToken !== token) {
+      res.status(403).send('Invalid token'); return
+    }
+
+    // Fetch assigned games
+    const gamesSnap = await db.collection('games')
+      .where('assignedUids', 'array-contains', uid)
+      .get()
+
+    const ical = require('ical-generator').default
+    const cal = ical({ name: 'GameCrewHQ Schedule', timezone: 'America/Chicago' })
+
+    gamesSnap.docs.forEach(d => {
+      const g = d.data()
+      const gameDate = g.gameDate instanceof admin.firestore.Timestamp
+        ? g.gameDate.toDate() : new Date(g.gameDate)
+      const endDate = new Date(gameDate.getTime() + (g.duration ?? 1.5) * 3600000)
+      const assigned = (g.assignedOfficials ?? []).find(o => o.uid === uid)
+
+      cal.createEvent({
+        id:          d.id,
+        start:       gameDate,
+        end:         endDate,
+        summary:     `${g.homeTeam} vs ${g.awayTeam}`,
+        description: [
+          `Role: ${assigned?.role ?? 'Official'}`,
+          `Division: ${g.division ?? '—'}`,
+          `Duration: ${g.duration ?? 1.5}hr`,
+          g.notes ? `Notes: ${g.notes}` : '',
+        ].filter(Boolean).join('\n'),
+        location:    g.venue ?? '',
+        url:         'https://refsync-nine.vercel.app/official/schedule',
+      })
+    })
+
+    res.set('Content-Type', 'text/calendar; charset=utf-8')
+    res.set('Content-Disposition', 'attachment; filename="gamecrewhq.ics"')
+    res.send(cal.toString())
+  }
+)
+
+// ── 9. SMS Reminders via Twilio ───────────────────────────────────────────────
+const TWILIO_SID    = defineSecret('TWILIO_ACCOUNT_SID')
+const TWILIO_TOKEN  = defineSecret('TWILIO_AUTH_TOKEN')
+const TWILIO_PHONE  = defineSecret('TWILIO_PHONE_NUMBER')
+
+exports.sendGameReminders = onSchedule(
+  { schedule: 'every 30 minutes', timeZone: 'America/Chicago', secrets: [TWILIO_SID, TWILIO_TOKEN, TWILIO_PHONE] },
+  async () => {
+    const twilio = require('twilio')
+    const client = twilio(TWILIO_SID.value(), TWILIO_TOKEN.value())
+    const from   = TWILIO_PHONE.value()
+    const now    = new Date()
+
+    // Find games starting in ~24 hours and ~2 hours
+    const in24h  = new Date(now.getTime() + 23.5 * 3600000)
+    const in24hE = new Date(now.getTime() + 24.5 * 3600000)
+    const in2h   = new Date(now.getTime() +  1.5 * 3600000)
+    const in2hE  = new Date(now.getTime() +  2.5 * 3600000)
+
+    const windows = [
+      { start: admin.firestore.Timestamp.fromDate(in24h), end: admin.firestore.Timestamp.fromDate(in24hE), label: '24h' },
+      { start: admin.firestore.Timestamp.fromDate(in2h),  end: admin.firestore.Timestamp.fromDate(in2hE),  label: '2h'  },
+    ]
+
+    for (const window of windows) {
+      const gamesSnap = await db.collection('games')
+        .where('gameDate', '>=', window.start)
+        .where('gameDate', '<=', window.end)
+        .where('status', 'in', ['assigned', 'open'])
+        .get()
+
+      for (const gameDoc of gamesSnap.docs) {
+        const g = gameDoc.data()
+        const gameDate = g.gameDate.toDate()
+        const timeStr  = gameDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+        const dateStr  = gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
+
+        for (const official of (g.assignedOfficials ?? [])) {
+          if (!official.uid) continue
+          // Check if reminder already sent
+          const reminderKey = `${gameDoc.id}_${official.uid}_${window.label}`
+          const sentSnap = await db.collection('smsReminders').doc(reminderKey).get()
+          if (sentSnap.exists) continue
+
+          // Get official's phone number
+          const userSnap = await db.collection('users').doc(official.uid).get()
+          const phone = userSnap.data()?.phone
+          if (!phone) continue
+
+          const msg = window.label === '24h'
+            ? `GameCrewHQ: Reminder — you're scheduled for ${g.homeTeam} vs ${g.awayTeam} tomorrow (${dateStr}) at ${timeStr} at ${g.venue ?? 'TBD'}. Role: ${official.role ?? 'Official'}.`
+            : `GameCrewHQ: Game in ~2 hours — ${g.homeTeam} vs ${g.awayTeam} at ${timeStr} at ${g.venue ?? 'TBD'}. See you on the ice!`
+
+          try {
+            await client.messages.create({ from, to: phone, body: msg })
+            await db.collection('smsReminders').doc(reminderKey).set({ sentAt: admin.firestore.FieldValue.serverTimestamp() })
+            console.log(`SMS sent to ${official.uid} for game ${gameDoc.id} (${window.label})`)
+          } catch (e) { console.error(`SMS failed for ${official.uid}:`, e.message) }
+        }
+      }
+    }
+  }
+)
+
+// ── 10. Send SMS when official is newly assigned to a game ────────────────────
+exports.sendAssignmentSMS = onRequest(
+  { cors: true, secrets: [TWILIO_SID, TWILIO_TOKEN, TWILIO_PHONE] },
+  async (req, res) => withCors(req, res, async () => {
+    const { officialUid, gameId } = req.body
+    if (!officialUid || !gameId) { res.status(400).json({ error: 'Missing fields' }); return }
+    try {
+      const [userSnap, gameSnap] = await Promise.all([
+        db.collection('users').doc(officialUid).get(),
+        db.collection('games').doc(gameId).get(),
+      ])
+      const phone = userSnap.data()?.phone
+      if (!phone) { res.json({ skipped: 'no phone' }); return }
+      const g = gameSnap.data()
+      const gameDate = g.gameDate.toDate()
+      const dateStr  = gameDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', timeZone: 'America/Chicago' })
+      const timeStr  = gameDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' })
+      const assigned = (g.assignedOfficials ?? []).find(o => o.uid === officialUid)
+      const twilio   = require('twilio')
+      const client   = twilio(TWILIO_SID.value(), TWILIO_TOKEN.value())
+      await client.messages.create({
+        from: TWILIO_PHONE.value(),
+        to:   phone,
+        body: `GameCrewHQ: You've been assigned to ${g.homeTeam} vs ${g.awayTeam} on ${dateStr} at ${timeStr} at ${g.venue ?? 'TBD'} as ${assigned?.role ?? 'Official'}. View details: https://refsync-nine.vercel.app`
+      })
+      res.json({ sent: true })
+    } catch (err) { res.status(500).json({ error: err.message }) }
+  })
+)
+
+// ── 11. Auto-Assign officials to a game ──────────────────────────────────────
+exports.autoAssignGame = onRequest(
+  { cors: true },
+  async (req, res) => withCors(req, res, async () => {
+    const { gameId, schedulerId, schedulerType } = req.body
+    if (!gameId || !schedulerId) { res.status(400).json({ error: 'Missing fields' }); return }
+
+    try {
+      const gameSnap = await db.collection('games').doc(gameId).get()
+      if (!gameSnap.exists) { res.status(404).json({ error: 'Game not found' }); return }
+      const game = gameSnap.data()
+      const gameDate = game.gameDate instanceof admin.firestore.Timestamp
+        ? game.gameDate.toDate() : new Date(game.gameDate)
+      const dateStr   = gameDate.toISOString().slice(0, 10)
+      const gameTime  = `${String(gameDate.getHours()).padStart(2,'0')}:${String(gameDate.getMinutes()).padStart(2,'0')}`
+      const durationH = Number(game.duration ?? 1.5)
+
+      // Get roster for this scheduler
+      const rosterSnap = await db.collection('connections')
+        .where('fromUid', '==', schedulerId)
+        .where('type', '==', 'scheduler-official')
+        .where('status', '==', 'accepted')
+        .get()
+      const officialUids = rosterSnap.docs.map(d => d.data().toUid).filter(Boolean)
+
+      if (!officialUids.length) { res.json({ assigned: [], message: 'No roster' }); return }
+
+      // Load availability + game counts for each official
+      const officialData = await Promise.all(officialUids.map(async uid => {
+        const [userSnap, availSnap, gamesSnap] = await Promise.all([
+          db.collection('users').doc(uid).get(),
+          db.collection('users').doc(uid).collection('availability').doc('data').get(),
+          db.collection('games').where('assignedUids', 'array-contains', uid).get(),
+        ])
+        if (!userSnap.exists) return null
+        const user     = userSnap.data()
+        const avail    = availSnap.exists ? availSnap.data() : {}
+        const dayData  = avail[dateStr] ?? null
+        const gameCount = gamesSnap.size
+
+        // Check availability with 1hr buffer
+        const bufferMins = 60
+        const gameStartMins = parseInt(gameTime.split(':')[0]) * 60 + parseInt(gameTime.split(':')[1])
+        const gameEndMins   = gameStartMins + durationH * 60
+        const neededStart   = gameStartMins - bufferMins
+        const neededEnd     = gameEndMins   + bufferMins
+
+        let available = false
+        if (!dayData || dayData.status === 'unavailable_all_day') available = false
+        else if (dayData.status === 'available_all_day') available = true
+        else if (dayData.status === 'partial') {
+          available = (dayData.windows ?? []).some(w => {
+            const ws = parseInt(w.start.split(':')[0])*60 + parseInt(w.start.split(':')[1])
+            const we = parseInt(w.end.split(':')[0])*60   + parseInt(w.end.split(':')[1])
+            return ws <= neededStart && we >= neededEnd
+          })
+        }
+
+        // Filter by scheduler type
+        const subRoles = user.subRoles ?? []
+        const isRef = subRoles.includes('referee')
+        const isSK  = subRoles.includes('scorekeeper')
+        const relevantForScheduler = schedulerType === 'ref_scheduler'
+          ? isRef : schedulerType === 'sk_scheduler' ? isSK : true
+
+        return { uid, name: user.displayName, subRoles, available, gameCount, relevantForScheduler, certLevel: user.officialProfile?.certLevel }
+      }))
+
+      const eligible = officialData.filter(o => o && o.available && o.relevantForScheduler)
+
+      // Build crew slots needed
+      const assigned       = game.assignedOfficials ?? []
+      const refsNeeded     = Number(game.refs ?? 0)
+      const linesNeeded    = Number(game.linesmen ?? 0)
+      const sksNeeded      = Number(game.scorekeepers ?? 0)
+
+      const assignments = []
+
+      const fillSlots = (count, roleFn, eligiblePool) => {
+        // Sort by fewest games (load balancing)
+        const sorted = [...eligiblePool].sort((a, b) => a.gameCount - b.gameCount)
+        for (let i = 1; i <= count; i++) {
+          const role = roleFn(i, count)
+          if (assigned.find(o => o.role === role)) continue // already filled
+          const official = sorted.find(o => !assignments.find(a => a.uid === o.uid))
+          if (!official) continue
+          assignments.push({ uid: official.uid, name: official.name, role, pay: 0 })
+        }
+      }
+
+      const refs = eligible.filter(o => o.subRoles.includes('referee'))
+      const sks  = eligible.filter(o => o.subRoles.includes('scorekeeper'))
+
+      if (schedulerType !== 'sk_scheduler') {
+        fillSlots(refsNeeded,  (i, n) => n === 1 ? 'Referee'  : `Referee ${i}`,  refs)
+        fillSlots(linesNeeded, (i, n) => n === 1 ? 'Linesman' : `Linesman ${i}`, refs)
+      }
+      if (schedulerType !== 'ref_scheduler') {
+        fillSlots(sksNeeded, (i, n) => n === 1 ? 'Scorekeeper' : `Scorekeeper ${i}`, sks)
+      }
+
+      // Load pricing sheet for pay
+      const sheetSnap = await db.collection('users').doc(schedulerId).collection('pricingSheet').doc('data').get()
+      const sheet = sheetSnap.exists ? sheetSnap.data() : { defaultPay: 0, rules: [] }
+
+      // Write assignments to Firestore
+      const allAssigned    = [...assigned, ...assignments.map(a => {
+        const rule = (sheet.rules ?? []).find(r => r.division?.toLowerCase() === game.division?.toLowerCase() && r.role === a.role)
+        const pay  = rule?.pay ?? sheet.defaultPay ?? 0
+        return { ...a, pay, status: 'pending', assignedAt: new Date().toISOString() }
+      })]
+      const allUids = [...new Set(allAssigned.map(o => o.uid))]
+
+      const refsA  = allAssigned.filter(o => o.role?.startsWith('Referee')).length
+      const linesA = allAssigned.filter(o => o.role?.startsWith('Linesman')).length
+      const sksA   = allAssigned.filter(o => o.role?.startsWith('Scorekeeper')).length
+      const refSlotsFull = refsA >= refsNeeded && linesA >= linesNeeded
+      const skSlotsFull  = sksA >= sksNeeded
+      const allSlotsFull = refSlotsFull && skSlotsFull
+
+      await db.collection('games').doc(gameId).update({
+        assignedOfficials: allAssigned,
+        assignedUids: allUids,
+        refSlotsFull, skSlotsFull, allSlotsFull,
+        status: allSlotsFull ? 'assigned' : 'open',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      })
+
+      // Send assignment notifications
+      for (const a of assignments) {
+        await db.collection('notifications').doc().set === undefined
+        await db.collection('notifications').add({
+          uid: a.uid, type: 'assignment',
+          title: '📋 Game Assignment',
+          message: `You've been auto-assigned to ${game.homeTeam} vs ${game.awayTeam} as ${a.role}`,
+          read: false, link: '/official/schedule',
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        })
+      }
+
+      res.json({ assigned: assignments, total: assignments.length })
+    } catch (err) {
+      console.error('autoAssign error:', err)
       res.status(500).json({ error: err.message })
     }
   })
