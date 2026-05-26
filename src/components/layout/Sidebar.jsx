@@ -113,10 +113,11 @@ export default function Sidebar({ isOpen, onClose }) {
       <aside className={[styles.sidebar, isOpen ? styles.open : ''].join(' ')}>
         {/* Logo */}
         <div className={styles.logo}>
-          <div className={styles.puck}>🏒</div>
-          <span className={styles.logoText}>
-            Ref<span className={styles.logoAccent}>Sync</span>
-          </span>
+          <img
+            src="/logos/GAMECREWHQ-LOGO-STACKED-BLKBG-transparent.png"
+            alt="GameCrewHQ"
+            className={styles.logoImg}
+          />
         </div>
 
         {/* Active role */}
