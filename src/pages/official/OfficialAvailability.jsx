@@ -237,6 +237,11 @@ export default function OfficialAvailability() {
         <div className={styles.dayPanel}>
           {selectedDate && dayDraft ? (
             <>
+              <div className={styles.dayFooter}>
+                <Button variant="primary" loading={saving} onClick={handleSave}>Save</Button>
+                <Button variant="ghost"  onClick={handleReset}>Reset to unavailable</Button>
+              </div>
+
               <div className={styles.dayHeader}>
                 <div>
                   <div className={styles.dayTitle}>{format(selectedDate, 'EEEE, MMMM d')}</div>
@@ -326,11 +331,6 @@ export default function OfficialAvailability() {
                     </div>
                   )}
                 </div>
-              </div>
-
-              <div className={styles.dayFooter}>
-                <Button variant="primary" loading={saving} onClick={handleSave}>Save</Button>
-                <Button variant="ghost"  onClick={handleReset}>Reset to unavailable</Button>
               </div>
             </>
           ) : (
