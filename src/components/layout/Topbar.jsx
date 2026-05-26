@@ -21,7 +21,11 @@ export default function Topbar({ onMenuClick, title }) {
           <MenuIcon />
         </button>
 
-        <h1 className={styles.title}>{title}</h1>
+        <img
+          src="/logos/GAMECREWHQ-LOGO-LONG-BLKBG-transparent.png"
+          alt="GameCrewHQ"
+          className={styles.headerLogo}
+        />
 
         <div className={styles.actions}>
           <div className={styles.search}>
