@@ -36,9 +36,13 @@ export default function ProfileShell() {
         {/* Top nav bar */}
         <header className={styles.topbar}>
           <div className={styles.topbarLeft}>
-            <div className={styles.logo} onClick={() => navigate('/profile')}>
-              Ref<span className={styles.logoAccent}>Sync</span>
-            </div>
+            <img
+              src="/logos/GAMECREWHQ-LOGO-LONG-BLKBG-transparent.png"
+              alt="GameCrewHQ"
+              className={styles.logo}
+              onClick={() => navigate('/profile')}
+              style={{ cursor: 'pointer' }}
+            />
 
             {/* Profile nav links */}
             <nav className={styles.nav}>
