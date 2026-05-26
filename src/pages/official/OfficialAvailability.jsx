@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useAuth } from '@/context/AuthContext'
 import { db } from '@/lib/firebase'
 import { doc, getDoc, setDoc } from 'firebase/firestore'
-import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState } from '@/components/ui'
-import Button from '@/components/ui/Button'
 import { Spinner } from '@/components/ui/LoadingSpinner'
+import Button from '@/components/ui/Button'
 import {
   format, startOfMonth, endOfMonth, eachDayOfInterval,
   startOfWeek, endOfWeek, isSameMonth, isSameDay, isToday,
@@ -13,118 +12,153 @@ import {
 import styles from './OfficialAvailability.module.css'
 import toast from 'react-hot-toast'
 
-/**
- * Availability model — unavailable by default.
- * Each day stored under users/{uid}/availability/{yyyy-MM-dd}:
- * {
- *   status: 'available_all_day' | 'unavailable_all_day' | 'partial',
- *   windows: [{ start: 'HH:MM', end: 'HH:MM' }]  // only when partial
- * }
- * Absence of a record = unavailable_all_day
- */
-
-const STATUS_META = {
-  unavailable_all_day: { label: 'Unavailable all day', icon: '🚫', color: 'var(--orange)', bg: 'var(--orange-light)' },
-  available_all_day:   { label: 'Available all day',   icon: '✅', color: 'var(--green)',  bg: 'var(--green-light)'  },
-  partial:             { label: 'Partial availability', icon: '🕐', color: 'var(--blue)',   bg: 'var(--blue-light)'   },
-}
+const HOUR_HEIGHT = 56 // px per hour
+const HOURS = Array.from({ length: 24 }, (_, i) => i)
 
 const toMins = (t) => { const [h, m] = t.split(':').map(Number); return h * 60 + m }
-const fromMins = (m) => `${String(Math.floor(m/60)).padStart(2,'0')}:${String(m%60).padStart(2,'0')}`
+const minsToTime = (m) => `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
+const formatHour = (h) => h === 0 ? '12 AM' : h < 12 ? `${h} AM` : h === 12 ? '12 PM' : `${h - 12} PM`
 
-export function isAvailableForWindow(dayData, neededStart, neededEnd) {
-  if (!dayData || dayData.status === 'unavailable_all_day') return false
-  if (dayData.status === 'available_all_day') return true
-  if (dayData.status === 'partial') {
-    const ns = toMins(neededStart), ne = toMins(neededEnd)
-    return (dayData.windows ?? []).some(w => toMins(w.start) <= ns && toMins(w.end) >= ne)
+// Given a list of available windows, compute unavailable gaps between midnight and midnight
+const invertWindows = (windows, dayStatus) => {
+  if (dayStatus === 'available_all_day') return []
+  if (dayStatus === 'unavailable_all_day') return [{ start: 0, end: 1440 }]
+  // partial: fill gaps
+  const sorted = [...windows].sort((a, b) => toMins(a.start) - toMins(b.start))
+  const unavail = []
+  let cursor = 0
+  for (const w of sorted) {
+    const ws = toMins(w.start), we = toMins(w.end)
+    if (ws > cursor) unavail.push({ start: cursor, end: ws })
+    cursor = Math.max(cursor, we)
   }
-  return false
+  if (cursor < 1440) unavail.push({ start: cursor, end: 1440 })
+  return unavail
 }
 
 export default function OfficialAvailability() {
   const { user } = useAuth()
-  const [availability, setAvailability] = useState({}) // { 'yyyy-MM-dd': { status, windows } }
+  const [availability, setAvailability] = useState({})
   const [loading, setLoading]     = useState(true)
   const [saving, setSaving]       = useState(false)
   const [currentMonth, setCurrentMonth] = useState(new Date())
   const [selectedDate, setSelectedDate] = useState(null)
-  const [dayDraft, setDayDraft]   = useState(null) // draft edits for selected day
-  const [windowForm, setWindowForm] = useState({ start: '09:00', end: '17:00' })
+  const [dayDraft, setDayDraft]   = useState(null)
+  const [dragging, setDragging]   = useState(null) // { startMin, endMin, mode }
+  const timelineRef = useRef(null)
 
-  const today    = startOfDay(new Date())
-  const isPast   = (d) => isBefore(startOfDay(d), today)
-  const calDays  = eachDayOfInterval({
+  const today  = startOfDay(new Date())
+  const isPast = (d) => isBefore(startOfDay(d), today)
+  const calDays = eachDayOfInterval({
     start: startOfWeek(startOfMonth(currentMonth), { weekStartsOn: 0 }),
     end:   endOfWeek(endOfMonth(currentMonth),     { weekStartsOn: 0 }),
   })
 
-  // Load availability from Firestore
   useEffect(() => {
     if (!user) return
     getDoc(doc(db, 'users', user.uid, 'availability', 'data'))
-      .then(snap => {
-        if (snap.exists()) setAvailability(snap.data())
-        setLoading(false)
-      })
+      .then(snap => { if (snap.exists()) setAvailability(snap.data()); setLoading(false) })
       .catch(() => setLoading(false))
   }, [user])
 
-  const getDayData = (dateStr) => availability[dateStr] ?? { status: 'unavailable_all_day', windows: [] }
-  const getDayStatus = (dateStr) => getDayData(dateStr).status
+  const getDayData   = (ds) => availability[ds] ?? { status: 'unavailable_all_day', windows: [] }
+  const getDayStatus = (ds) => getDayData(ds).status
 
   const handleDayClick = (day) => {
     if (isPast(day)) return
-    const dateStr = format(day, 'yyyy-MM-dd')
     setSelectedDate(day)
-    setDayDraft({ ...getDayData(dateStr) })
+    const ds = format(day, 'yyyy-MM-dd')
+    setDayDraft(JSON.parse(JSON.stringify(getDayData(ds))))
   }
 
-  const setDraftStatus = (status) => {
+  // ── Timeline drag to add/remove available windows ───────────────────────────
+  const yToMin = (y) => {
+    const rect = timelineRef.current?.getBoundingClientRect()
+    if (!rect) return 0
+    return Math.round(Math.max(0, Math.min(1440, (y - rect.top) / HOUR_HEIGHT * 60)) / 15) * 15
+  }
+
+  const handleTimelineMouseDown = (e) => {
+    if (!dayDraft) return
+    e.preventDefault()
+    const m = yToMin(e.clientY)
+    setDragging({ startMin: m, endMin: m, mode: 'add' })
+  }
+
+  const handleTimelineMouseMove = useCallback((e) => {
+    if (!dragging) return
+    const m = yToMin(e.clientY)
+    setDragging(d => ({ ...d, endMin: m }))
+  }, [dragging])
+
+  const handleTimelineMouseUp = useCallback(() => {
+    if (!dragging || !dayDraft) { setDragging(null); return }
+    const s = Math.min(dragging.startMin, dragging.endMin)
+    const e = Math.max(dragging.startMin, dragging.endMin)
+    if (e - s < 15) { setDragging(null); return }
+    // Merge with existing windows
+    const newWin = { start: minsToTime(s), end: minsToTime(e) }
+    const merged = mergeWindows([...(dayDraft.windows ?? []), newWin])
+    setDayDraft(d => ({ ...d, status: 'partial', windows: merged }))
+    setDragging(null)
+  }, [dragging, dayDraft])
+
+  useEffect(() => {
+    if (dragging) {
+      window.addEventListener('mousemove', handleTimelineMouseMove)
+      window.addEventListener('mouseup',  handleTimelineMouseUp)
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleTimelineMouseMove)
+      window.removeEventListener('mouseup',  handleTimelineMouseUp)
+    }
+  }, [dragging, handleTimelineMouseMove, handleTimelineMouseUp])
+
+  const mergeWindows = (wins) => {
+    if (!wins.length) return []
+    const sorted = [...wins].map(w => ({ s: toMins(w.start), e: toMins(w.end) })).sort((a,b) => a.s - b.s)
+    const merged = [sorted[0]]
+    for (let i = 1; i < sorted.length; i++) {
+      const last = merged[merged.length - 1]
+      if (sorted[i].s <= last.e) last.e = Math.max(last.e, sorted[i].e)
+      else merged.push(sorted[i])
+    }
+    return merged.filter(w => w.e > w.s).map(w => ({ start: minsToTime(w.s), end: minsToTime(w.e) }))
+  }
+
+  const removeWindow = (i) => setDayDraft(d => ({ ...d, windows: (d.windows ?? []).filter((_,idx) => idx !== i) }))
+
+  const setDayStatus = (status) => {
     setDayDraft(d => ({ ...d, status, windows: status === 'partial' ? (d.windows ?? []) : [] }))
   }
 
-  const addWindow = () => {
-    if (toMins(windowForm.start) >= toMins(windowForm.end)) {
-      toast.error('End time must be after start time'); return
-    }
-    setDayDraft(d => ({
-      ...d,
-      windows: [...(d.windows ?? []), { start: windowForm.start, end: windowForm.end }]
-        .sort((a, b) => toMins(a.start) - toMins(b.start))
-    }))
-    setWindowForm({ start: '09:00', end: '17:00' })
-  }
-
-  const removeWindow = (i) => setDayDraft(d => ({ ...d, windows: d.windows.filter((_, idx) => idx !== i) }))
-
   const handleSave = async () => {
     if (!selectedDate || !dayDraft) return
-    if (dayDraft.status === 'partial' && (!dayDraft.windows || dayDraft.windows.length === 0)) {
-      toast.error('Add at least one available time window, or choose "Unavailable all day"'); return
+    if (dayDraft.status === 'partial' && !dayDraft.windows?.length) {
+      toast.error('Add at least one available time block, or choose a full-day status'); return
     }
     setSaving(true)
     try {
-      const dateStr = format(selectedDate, 'yyyy-MM-dd')
-      const updated = { ...availability, [dateStr]: dayDraft }
+      const ds = format(selectedDate, 'yyyy-MM-dd')
+      const updated = { ...availability, [ds]: dayDraft }
       await setDoc(doc(db, 'users', user.uid, 'availability', 'data'), updated)
       setAvailability(updated)
       toast.success('Availability saved')
-    } catch (err) { toast.error('Failed to save: ' + err.message) }
+    } catch (err) { toast.error('Failed to save') }
     finally { setSaving(false) }
   }
 
-  const handleClearDay = async () => {
+  const handleReset = async () => {
     if (!selectedDate) return
-    const dateStr = format(selectedDate, 'yyyy-MM-dd')
+    const ds = format(selectedDate, 'yyyy-MM-dd')
     const updated = { ...availability }
-    delete updated[dateStr]
+    delete updated[ds]
     setSaving(true)
     try {
       await setDoc(doc(db, 'users', user.uid, 'availability', 'data'), updated)
       setAvailability(updated)
       setDayDraft({ status: 'unavailable_all_day', windows: [] })
-      toast.success('Day reset to unavailable')
+      toast.success('Reset to unavailable')
     } catch { toast.error('Failed to reset') }
     finally { setSaving(false) }
   }
@@ -133,149 +167,178 @@ export default function OfficialAvailability() {
 
   const selectedDateStr = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : null
 
+  // Drag preview block
+  const dragBlock = dragging && dragging.endMin !== dragging.startMin ? {
+    s: Math.min(dragging.startMin, dragging.endMin),
+    e: Math.max(dragging.startMin, dragging.endMin),
+  } : null
+
+  // Unavailable blocks for rendering
+  const unavailBlocks = dayDraft ? invertWindows(dayDraft.windows ?? [], dayDraft.status) : []
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
         <h1 className={styles.title}>My Availability</h1>
-        <p className={styles.sub}>
-          You are <strong>unavailable by default</strong>. Mark the days and times when you are available to work games.
-        </p>
+        <p className={styles.sub}>Unavailable by default. Click a day to set when you are available.</p>
       </div>
 
       <div className={styles.layout}>
-        {/* Calendar */}
-        <Card>
-          <CardHeader>
-            <div className={styles.calNav}>
-              <button className={styles.calNavBtn} onClick={() => setCurrentMonth(m => subMonths(m, 1))}>‹</button>
-              <span className={styles.calMonth}>{format(currentMonth, 'MMMM yyyy')}</span>
-              <button className={styles.calNavBtn} onClick={() => setCurrentMonth(m => addMonths(m, 1))}>›</button>
-            </div>
-          </CardHeader>
-          <CardBody>
-            <div className={styles.calDayLabels}>
-              {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => (
-                <div key={d} className={styles.calDayLabel}>{d}</div>
-              ))}
-            </div>
-            <div className={styles.calGrid}>
-              {calDays.map(day => {
-                const dateStr    = format(day, 'yyyy-MM-dd')
-                const status     = getDayStatus(dateStr)
-                const past       = isPast(day)
-                const isSelected = selectedDate && isSameDay(day, selectedDate)
-                const inMonth    = isSameMonth(day, currentMonth)
-                const dotColor   = status === 'available_all_day' ? 'var(--green)'
-                                 : status === 'partial'           ? 'var(--blue)'
-                                 : null // unavailable = no dot (default = unavailable, no need to show)
-                return (
-                  <div key={dateStr}
-                    className={[
-                      styles.calCell,
-                      !inMonth     ? styles.otherMonth : '',
-                      past         ? styles.pastDay    : '',
-                      isToday(day) ? styles.today      : '',
-                      isSelected   ? styles.selected   : '',
-                    ].join(' ')}
-                    onClick={() => handleDayClick(day)}
-                  >
-                    <span className={styles.calCellDate}>{format(day, 'd')}</span>
-                    {dotColor && !past && (
-                      <span className={styles.calCellDot} style={{
-                        background: isSelected || isToday(day) ? 'rgba(255,255,255,.9)' : dotColor
-                      }} />
-                    )}
-                  </div>
-                )
-              })}
-            </div>
+        {/* ── Month calendar ── */}
+        <div className={styles.calCard}>
+          <div className={styles.calNav}>
+            <button className={styles.calNavBtn} onClick={() => setCurrentMonth(m => subMonths(m, 1))}>‹</button>
+            <span className={styles.calMonth}>{format(currentMonth, 'MMMM yyyy')}</span>
+            <button className={styles.calNavBtn} onClick={() => setCurrentMonth(m => addMonths(m, 1))}>›</button>
+          </div>
 
-            <div className={styles.legend}>
-              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--color-border-strong)' }} /><span>Unavailable (default)</span></div>
-              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--green)' }} /><span>Available all day</span></div>
-              <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--blue)' }} /><span>Partial availability</span></div>
-            </div>
-          </CardBody>
-        </Card>
+          <div className={styles.calDayLabels}>
+            {['Su','Mo','Tu','We','Th','Fr','Sa'].map(d => <div key={d} className={styles.calDayLabel}>{d}</div>)}
+          </div>
 
-        {/* Day detail panel */}
-        <div className={styles.detailPanel}>
+          <div className={styles.calGrid}>
+            {calDays.map(day => {
+              const ds = format(day, 'yyyy-MM-dd')
+              const status = getDayStatus(ds)
+              const past   = isPast(day)
+              const isSel  = selectedDate && isSameDay(day, selectedDate)
+              const inMo   = isSameMonth(day, currentMonth)
+              const dotColor = status === 'available_all_day' ? '#00BF63'
+                             : status === 'partial'           ? '#2563eb'
+                             : null
+              return (
+                <div key={ds}
+                  className={[
+                    styles.calCell,
+                    !inMo   ? styles.otherMonth : '',
+                    past    ? styles.pastDay    : '',
+                    isToday(day) ? styles.today : '',
+                    isSel   ? styles.selected   : '',
+                  ].join(' ')}
+                  onClick={() => handleDayClick(day)}
+                >
+                  <span className={styles.calCellDate}>{format(day, 'd')}</span>
+                  {dotColor && !past && (
+                    <span className={styles.calCellDot} style={{ background: isSel ? 'rgba(255,255,255,.9)' : dotColor }} />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          <div className={styles.legend}>
+            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: 'var(--color-border-strong)' }} /><span>Unavailable</span></div>
+            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: '#00BF63' }} /><span>Available all day</span></div>
+            <div className={styles.legendItem}><div className={styles.legendDot} style={{ background: '#2563eb' }} /><span>Partial</span></div>
+          </div>
+        </div>
+
+        {/* ── Day view ── */}
+        <div className={styles.dayPanel}>
           {selectedDate && dayDraft ? (
-            <Card>
-              <CardHeader>
-                <CardTitle>{format(selectedDate, 'EEEE, MMMM d')}</CardTitle>
-              </CardHeader>
-              <CardBody>
-                {/* Status selector */}
-                <div className={styles.statusLabel}>Day Status</div>
-                <div className={styles.statusOptions}>
-                  {Object.entries(STATUS_META).map(([key, meta]) => (
-                    <div key={key}
-                      className={[styles.statusOption, dayDraft.status === key ? styles.statusActive : ''].join(' ')}
-                      style={dayDraft.status === key ? { background: meta.bg, borderColor: meta.color } : {}}
-                      onClick={() => setDraftStatus(key)}
-                    >
-                      <div className={styles.statusRadio} style={dayDraft.status === key ? { background: meta.color, borderColor: meta.color } : {}}>
-                        {dayDraft.status === key && <div className={styles.statusRadioDot} />}
-                      </div>
-                      <div>
-                        <div className={styles.statusOptionLabel}>{meta.icon} {meta.label}</div>
-                      </div>
+            <>
+              <div className={styles.dayHeader}>
+                <div>
+                  <div className={styles.dayTitle}>{format(selectedDate, 'EEEE, MMMM d')}</div>
+                  <div className={styles.dayStatus}>
+                    {dayDraft.status === 'unavailable_all_day' && <span className={styles.badgeUnavail}>Unavailable all day</span>}
+                    {dayDraft.status === 'available_all_day'   && <span className={styles.badgeAvail}>Available all day</span>}
+                    {dayDraft.status === 'partial'             && <span className={styles.badgePartial}>{dayDraft.windows?.length ?? 0} available window{(dayDraft.windows?.length ?? 0) !== 1 ? 's' : ''}</span>}
+                  </div>
+                </div>
+                <div className={styles.dayStatusBtns}>
+                  <button className={[styles.statusBtn, dayDraft.status === 'unavailable_all_day' ? styles.statusBtnActiveRed : ''].join(' ')}
+                    onClick={() => setDayStatus('unavailable_all_day')}>Unavailable all day</button>
+                  <button className={[styles.statusBtn, dayDraft.status === 'available_all_day' ? styles.statusBtnActiveGreen : ''].join(' ')}
+                    onClick={() => setDayStatus('available_all_day')}>Available all day</button>
+                  <button className={[styles.statusBtn, dayDraft.status === 'partial' ? styles.statusBtnActiveBlue : ''].join(' ')}
+                    onClick={() => setDayStatus('partial')}>Set specific times</button>
+                </div>
+              </div>
+
+              {/* Timeline */}
+              <div className={styles.timelineWrap}>
+                <div className={styles.timelineHint}>
+                  {dayDraft.status === 'partial'
+                    ? 'Drag on the timeline to add available time blocks. Click a block to remove it.'
+                    : dayDraft.status === 'available_all_day'
+                    ? 'All hours are available. Switch to "Set specific times" to customize.'
+                    : 'No hours are available. Switch to "Set specific times" to mark some as available.'}
+                </div>
+
+                <div
+                  className={styles.timeline}
+                  ref={timelineRef}
+                  onMouseDown={dayDraft.status === 'partial' ? handleTimelineMouseDown : undefined}
+                  style={{ cursor: dayDraft.status === 'partial' ? 'crosshair' : 'default' }}
+                >
+                  {/* Hour grid lines */}
+                  {HOURS.map(h => (
+                    <div key={h} className={styles.hourRow} style={{ height: HOUR_HEIGHT }}>
+                      <div className={styles.hourLabel}>{formatHour(h)}</div>
+                      <div className={styles.hourLine} />
                     </div>
                   ))}
-                </div>
-
-                {/* Partial — time windows */}
-                {dayDraft.status === 'partial' && (
-                  <div className={styles.windowsSection}>
-                    <div className={styles.windowsLabel}>Available Time Windows</div>
-                    <p className={styles.windowsHint}>Add one or more windows when you are available. Times outside these windows are unavailable.</p>
-
-                    {(dayDraft.windows ?? []).length === 0 && (
-                      <div className={styles.noWindows}>No windows added yet — add your available times below.</div>
-                    )}
-
-                    {(dayDraft.windows ?? []).map((w, i) => (
-                      <div key={i} className={styles.windowRow}>
-                        <span className={styles.windowTime}>✅ {w.start} – {w.end}</span>
-                        <button className={styles.windowRemove} onClick={() => removeWindow(i)}>✕</button>
-                      </div>
-                    ))}
-
-                    <div className={styles.windowForm}>
-                      <div className={styles.windowFormRow}>
-                        <div className={styles.windowFormField}>
-                          <label className={styles.windowFormLabel}>From</label>
-                          <input type="time" className={styles.timeInput} value={windowForm.start}
-                            onChange={e => setWindowForm(f => ({ ...f, start: e.target.value }))} />
-                        </div>
-                        <div className={styles.windowFormField}>
-                          <label className={styles.windowFormLabel}>To</label>
-                          <input type="time" className={styles.timeInput} value={windowForm.end}
-                            onChange={e => setWindowForm(f => ({ ...f, end: e.target.value }))} />
-                        </div>
-                        <Button variant="secondary" size="sm" onClick={addWindow} style={{ marginTop: 20 }}>+ Add</Button>
-                      </div>
-                    </div>
+                  {/* End line */}
+                  <div className={styles.hourRow} style={{ height: 1 }}>
+                    <div className={styles.hourLabel}>12 AM</div>
+                    <div className={styles.hourLine} />
                   </div>
-                )}
 
-                {/* Save / reset */}
-                <div className={styles.dayActions}>
-                  <Button variant="primary" fullWidth loading={saving} onClick={handleSave}>
-                    Save Availability
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={handleClearDay}>
-                    Reset to Unavailable
-                  </Button>
+                  {/* Unavailable blocks (red) */}
+                  {unavailBlocks.map((b, i) => (
+                    <div key={i} className={styles.blockUnavail} style={{
+                      top: (b.start / 60) * HOUR_HEIGHT,
+                      height: ((b.end - b.start) / 60) * HOUR_HEIGHT,
+                    }}>
+                      <span className={styles.blockLabel}>Unavailable</span>
+                    </div>
+                  ))}
+
+                  {/* Available windows (green) — only in partial mode */}
+                  {dayDraft.status === 'partial' && (dayDraft.windows ?? []).map((w, i) => {
+                    const s = toMins(w.start), e = toMins(w.end)
+                    return (
+                      <div key={i} className={styles.blockAvail} style={{
+                        top: (s / 60) * HOUR_HEIGHT,
+                        height: ((e - s) / 60) * HOUR_HEIGHT,
+                      }}>
+                        <span className={styles.blockLabel}>{w.start} – {w.end}</span>
+                        <button className={styles.blockRemoveBtn} onMouseDown={ev => ev.stopPropagation()} onClick={() => removeWindow(i)}>✕</button>
+                      </div>
+                    )
+                  })}
+
+                  {/* Available all day overlay */}
+                  {dayDraft.status === 'available_all_day' && (
+                    <div className={styles.blockAvail} style={{ top: 0, height: 24 * HOUR_HEIGHT }}>
+                      <span className={styles.blockLabel}>Available all day</span>
+                    </div>
+                  )}
+
+                  {/* Drag preview */}
+                  {dragBlock && (
+                    <div className={styles.blockDrag} style={{
+                      top: (dragBlock.s / 60) * HOUR_HEIGHT,
+                      height: ((dragBlock.e - dragBlock.s) / 60) * HOUR_HEIGHT,
+                    }}>
+                      <span className={styles.blockLabel}>{minsToTime(dragBlock.s)} – {minsToTime(dragBlock.e)}</span>
+                    </div>
+                  )}
                 </div>
-              </CardBody>
-            </Card>
+              </div>
+
+              <div className={styles.dayFooter}>
+                <Button variant="primary" loading={saving} onClick={handleSave}>Save</Button>
+                <Button variant="ghost"  onClick={handleReset}>Reset to unavailable</Button>
+              </div>
+            </>
           ) : (
-            <Card><CardBody>
-              <EmptyState icon="📅" title="Select a day"
-                message="Click any future date on the calendar to set your availability." />
-            </CardBody></Card>
+            <div className={styles.dayEmpty}>
+              <div className={styles.dayEmptyIcon}>📅</div>
+              <div className={styles.dayEmptyTitle}>Select a day</div>
+              <div className={styles.dayEmptySub}>Click any future date to set your availability</div>
+            </div>
           )}
         </div>
       </div>
