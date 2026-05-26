@@ -182,7 +182,22 @@ export default function SchedAssign() {
     }
   }, [open])
 
-  // Auto-select first open crew slot when game changes
+  // Load pricing sheet for pay lookup
+  const [pricingSheet, setPricingSheet] = useState(null)
+  useEffect(() => {
+    if (!user) return
+    getDoc(doc(db, 'users', user.uid, 'pricingSheet', 'data'))
+      .then(snap => setPricingSheet(snap.exists() ? snap.data() : { defaultPay: 0, rules: [] }))
+      .catch(() => {})
+  }, [user])
+
+  const lookupPay = (division, role) => {
+    if (!pricingSheet) return 0
+    const rule = (pricingSheet.rules ?? []).find(r =>
+      r.division?.toLowerCase() === division?.toLowerCase() && r.role === role
+    )
+    return rule?.pay ?? pricingSheet.defaultPay ?? 0
+  }
   useEffect(() => {
     if (!selectedGame) return
     const slots = buildCrewSlots(selectedGame)
@@ -259,11 +274,14 @@ export default function SchedAssign() {
   // Manual assign
   const handleManualAssign = async (official) => {
     if (!selectedGame || !user) return
-    setAssigning(official.uid)
+    setAssigning(official.uid ?? official.id)
     try {
+      const pay = lookupPay(selectedGame.division, selectedRole)
       await assignOfficial(selectedGame.id, {
-        uid: official.uid, name: official.displayName,
-        role: selectedRole, pay: selectedGame.payRate ?? 0,
+        uid: official.uid ?? official.id,
+        name: official.displayName,
+        role: selectedRole,
+        pay,
       }, user.uid)
 
       // Notify official
@@ -334,14 +352,14 @@ export default function SchedAssign() {
                 <div style={{ display: 'flex', gap: 6 }}>
                   {isRefScheduler && !isBothScheduler && (
                     <>
-                      <Badge variant="red">{games.filter(g => !g.refSlotsFull).length} ref open</Badge>
-                      <Badge variant="green">{games.filter(g => g.refSlotsFull).length} ref filled</Badge>
+                      <Badge variant="red">{games.filter(g => !g.refSlotsFull).length} open</Badge>
+                      <Badge variant="green">{games.filter(g => g.refSlotsFull).length} filled</Badge>
                     </>
                   )}
                   {isSKScheduler && !isBothScheduler && (
                     <>
-                      <Badge variant="red">{games.filter(g => !g.skSlotsFull).length} SK open</Badge>
-                      <Badge variant="green">{games.filter(g => g.skSlotsFull).length} SK filled</Badge>
+                      <Badge variant="red">{games.filter(g => !g.skSlotsFull).length} open</Badge>
+                      <Badge variant="green">{games.filter(g => g.skSlotsFull).length} filled</Badge>
                     </>
                   )}
                   {isBothScheduler && (
@@ -380,7 +398,7 @@ export default function SchedAssign() {
                               const myDone = isRefScheduler && !isBothScheduler ? game.refSlotsFull
                                           : isSKScheduler  && !isBothScheduler ? game.skSlotsFull
                                           : game.allSlotsFull
-                              return <Badge variant={myDone ? 'green' : 'red'}>{myDone ? 'My slots filled' : 'Slots open'}</Badge>
+                              return <Badge variant={myDone ? 'green' : 'red'}>{myDone ? 'Filled' : 'Open'}</Badge>
                             })()}
                             {pendingReqs > 0 && <span className={styles.requestsBadge}>⚡ {pendingReqs} request{pendingReqs > 1 ? 's' : ''}</span>}
                             {game.assignedOfficials?.length > 0 && (
@@ -389,9 +407,6 @@ export default function SchedAssign() {
                               </span>
                             )}
                           </div>
-                        </div>
-                        <div className={styles.gamePay}>
-                          {game.skPayRate ? `SK $${Number(game.skPayRate).toFixed(2)}` : game.refPayRate ? `Ref $${Number(game.refPayRate).toFixed(2)}` : game.payRate ? `$${Number(game.payRate).toFixed(2)}` : '—'}
                         </div>
                       </div>
                     )

@@ -38,15 +38,16 @@ const NAV_CONFIG = {
   ],
   scheduler: [
     { section: 'Overview', items: [
-      { to: '/scheduler',        label: 'Dashboard',    icon: HomeIcon },
-      { to: '/scheduler/quotes', label: 'Quote Requests', icon: FlagIcon },
-      { to: '/scheduler/groups', label: 'Game Groups',  icon: CalIcon },
-      { to: '/scheduler/assign', label: 'Assign',       icon: FlagIcon },
+      { to: '/scheduler',          label: 'Dashboard',    icon: HomeIcon },
+      { to: '/scheduler/quotes',   label: 'Quote Requests', icon: FlagIcon },
+      { to: '/scheduler/groups',   label: 'Game Groups',  icon: CalIcon },
+      { to: '/scheduler/assign',   label: 'Assign',       icon: FlagIcon },
     ]},
     { section: 'Management', items: [
-      { to: '/scheduler/roster',   label: 'Roster',   icon: UsersIcon },
-      { to: '/scheduler/finance',  label: 'Finance',  icon: DollarIcon },
-      { to: '/scheduler/news',     label: 'News',     icon: NewsIcon },
+      { to: '/scheduler/roster',   label: 'Roster',       icon: UsersIcon },
+      { to: '/scheduler/finance',  label: 'Finance',      icon: DollarIcon },
+      { to: '/scheduler/pricing',  label: 'Pricing Sheet', icon: ReceiptIcon },
+      { to: '/scheduler/news',     label: 'News',         icon: NewsIcon },
     ]},
     { section: 'Account', items: [
       { to: '/scheduler/settings', label: 'Settings',  icon: SettingsIcon },

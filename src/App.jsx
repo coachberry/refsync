@@ -31,6 +31,7 @@ import SchedAssign     from '@/pages/scheduler/SchedAssign'
 import SchedRoster     from '@/pages/scheduler/SchedRoster'
 import SchedGameGroups from '@/pages/scheduler/SchedGameGroups'
 import SchedFinance    from '@/pages/scheduler/SchedFinance'
+import SchedPricing    from '@/pages/scheduler/SchedPricing'
 import SchedNews       from '@/pages/scheduler/SchedNews'
 import SchedQuotes     from '@/pages/scheduler/SchedQuotes'
 
@@ -90,6 +91,7 @@ export default function App() {
           <Route path="/scheduler/assign"    element={<SchedAssign />} />
           <Route path="/scheduler/roster"    element={<SchedRoster />} />
           <Route path="/scheduler/finance"   element={<SchedFinance />} />
+          <Route path="/scheduler/pricing"   element={<SchedPricing />} />
           <Route path="/scheduler/messages"  element={<Navigate to="/profile/messages" replace />} />
           <Route path="/scheduler/news"      element={<SchedNews />} />
           <Route path="/scheduler/settings"  element={<ComingSoon role="scheduler" />} />

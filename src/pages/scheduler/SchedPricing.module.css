@@ -1,0 +1,47 @@
+.page   { display: flex; flex-direction: column; gap: 16px; }
+.center { display: flex; justify-content: center; padding: 60px; }
+.header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.title  { font-family: var(--font-display); font-size: 24px; font-weight: 800; margin: 0; }
+.sub    { font-size: 13.5px; color: var(--color-muted); margin-top: 4px; }
+
+.defaultDesc    { font-size: 13.5px; color: var(--color-muted); margin-bottom: 14px; line-height: 1.5; }
+.defaultDisplay { display: flex; align-items: baseline; gap: 10px; }
+.defaultAmount  { font-family: var(--font-display); font-size: 32px; font-weight: 800; color: var(--green); }
+.defaultPer     { font-size: 14px; color: var(--color-muted); }
+.defaultEdit    { }
+.defaultInput   {
+  font-family: var(--font-display); font-size: 28px; font-weight: 800;
+  width: 140px; padding: 6px 10px; border-radius: 8px;
+  border: 2px solid var(--blue); background: var(--color-surface);
+  color: var(--color-text); outline: none;
+}
+
+.table { width: 100%; border-collapse: collapse; font-size: 13.5px; }
+.table thead th {
+  text-align: left; padding: 10px 16px;
+  font-size: 11px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: .5px; color: var(--color-muted);
+  background: var(--color-surface-2); border-bottom: 1px solid var(--color-border);
+}
+.table tbody tr { border-bottom: 1px solid var(--color-border); transition: background .1s; }
+.table tbody tr:last-child { border-bottom: none; }
+.table tbody tr:hover { background: var(--color-surface-2); }
+.table td { padding: 11px 16px; }
+
+.tdDiv  { font-weight: 600; }
+.tdPay  { font-family: var(--font-display); font-size: 16px; font-weight: 700; color: var(--green); }
+
+.removeBtn {
+  background: none; border: none; color: var(--color-muted); cursor: pointer;
+  font-size: 14px; padding: 4px 8px; border-radius: 6px;
+  transition: color .12s, background .12s;
+}
+.removeBtn:hover { color: var(--orange); background: var(--orange-light); }
+
+.formInput {
+  width: 100%; padding: 9px 12px; border-radius: 8px;
+  border: 1.5px solid var(--color-border); background: var(--color-surface);
+  font-size: 13.5px; font-family: var(--font-body); color: var(--color-text);
+  outline: none; transition: border-color .14s; box-sizing: border-box;
+}
+.formInput:focus { border-color: var(--blue); }
