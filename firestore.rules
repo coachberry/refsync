@@ -7,6 +7,19 @@ service cloud.firestore {
     function isOwner(uid)      { return request.auth.uid == uid; }
     function hasRole(role)     { return role in get(/databases/$(database)/documents/users/$(request.auth.uid)).data.roles; }
 
+    // ── Allowlist — public read so sign-in page can check, admin write only ──
+    match /allowlist/{docId} {
+      allow read:  if true; // must be readable before auth
+      allow write: if false; // only writable via Firebase console or Admin SDK
+    }
+
+    // ── Waitlist — anyone can join, no read ───────────────────────────────────
+    match /waitlist/{docId} {
+      allow read:  if true; // needed to check for duplicates
+      allow create: if true;
+      allow update, delete: if false;
+    }
+
     // ── Users ─────────────────────────────────────────────────────────────────
     match /users/{uid} {
       allow read:   if isAuth();

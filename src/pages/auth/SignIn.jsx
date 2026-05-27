@@ -1,8 +1,19 @@
 import { useState } from 'react'
 import { Link, useLocation, Navigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { db } from '@/lib/firebase'
+import { collection, query, where, getDocs } from 'firebase/firestore'
 import toast from 'react-hot-toast'
 import styles from './Auth.module.css'
+
+// Check if email is on the allowlist
+const checkAllowlist = async (email) => {
+  const snap = await getDocs(query(
+    collection(db, 'allowlist'),
+    where('email', '==', email.toLowerCase().trim())
+  ))
+  return !snap.empty
+}
 
 export default function SignIn() {
   const { signIn, user, activeRole, loading } = useAuth()
@@ -13,7 +24,6 @@ export default function SignIn() {
   const [submitting, setSubmitting] = useState(false)
   const [error, setError]       = useState('')
 
-  // Once auth resolves and user is logged in, redirect to profile
   if (!loading && user) {
     const from = location.state?.from?.pathname ?? '/profile'
     return <Navigate to={from} replace />
@@ -24,9 +34,15 @@ export default function SignIn() {
     setError('')
     setSubmitting(true)
     try {
+      // Check allowlist before attempting sign-in
+      const allowed = await checkAllowlist(email)
+      if (!allowed) {
+        setError('This platform is currently in private beta. Join the waitlist at gamecrewhq.com to request access.')
+        setSubmitting(false)
+        return
+      }
       await signIn(email, password)
       toast.success('Welcome back!')
-      // Navigate handled above once auth state updates
     } catch (err) {
       setError(
         err.code === 'auth/invalid-credential'

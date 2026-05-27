@@ -1,19 +1,20 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { db } from '@/lib/firebase'
+import { collection, addDoc, serverTimestamp, query, where, getDocs } from 'firebase/firestore'
 import styles from './Landing.module.css'
 
 const IconCalendar = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
-const IconClock    = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
 const IconCard     = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
 const IconPhone    = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18" strokeWidth="2.5"/></svg>
 const IconBolt     = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-const IconReceipt  = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
-
+const IconReceipt  = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+const IconClipboard= () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
 const IconPuck     = () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="16" rx="10" ry="4"/><path d="M2 16V8a10 4 0 0 1 20 0v8"/><path d="M2 12a10 4 0 0 0 20 0"/></svg>
-const IconClipboard= () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
 const IconShield   = () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
 
 const FEATURES = [
-  { Icon: IconClipboard, title: 'Smart Scheduling',  desc: 'Game Directors send RFQs to schedulers. Schedulers fill crews. Everyone stays in sync.' },
+  { Icon: IconClipboard, title: 'Smart Scheduling',  desc: 'Game Directors send requests to schedulers. Schedulers fill crews. Everyone stays in sync.' },
   { Icon: IconCalendar,  title: 'Calendar Sync',     desc: 'Officials get games in Apple Calendar, Google Calendar, or Outlook — automatically.' },
   { Icon: IconCard,      title: 'Built-in Payments', desc: 'Directors pay schedulers. Schedulers pay officials. All via Stripe — no checks, no Venmo.' },
   { Icon: IconPhone,     title: 'SMS Reminders',     desc: 'Officials get texts 24 hours and 2 hours before every game. No more no-shows.' },
@@ -27,8 +28,68 @@ const ROLES = [
   { Icon: IconShield,    role: 'Officials',      desc: 'See your schedule, set availability, sync to your calendar, and get paid automatically.' },
 ]
 
+function WaitlistForm({ label = 'Join the Waitlist', placeholder = 'Enter your email address' }) {
+  const [email, setEmail]   = useState('')
+  const [role, setRole]     = useState('')
+  const [submitted, setSubmitted] = useState(false)
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState('')
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    if (!email.trim() || !/\S+@\S+\.\S+/.test(email)) { setError('Enter a valid email address'); return }
+    setLoading(true); setError('')
+    try {
+      // Check if already on waitlist
+      const existing = await getDocs(query(collection(db, 'waitlist'), where('email', '==', email.toLowerCase().trim())))
+      if (!existing.empty) { setSubmitted(true); return }
+      await addDoc(collection(db, 'waitlist'), {
+        email:     email.toLowerCase().trim(),
+        role:      role || 'not specified',
+        source:    'landing_page',
+        createdAt: serverTimestamp(),
+      })
+      setSubmitted(true)
+    } catch { setError('Something went wrong. Try again.') }
+    finally { setLoading(false) }
+  }
+
+  if (submitted) return (
+    <div className={styles.waitlistSuccess}>
+      <div className={styles.waitlistSuccessIcon}>✓</div>
+      <div className={styles.waitlistSuccessTitle}>You're on the list!</div>
+      <div className={styles.waitlistSuccessSub}>We'll email you when GameCrewHQ opens. You'll be among the first in.</div>
+    </div>
+  )
+
+  return (
+    <form className={styles.waitlistForm} onSubmit={handleSubmit}>
+      <div className={styles.waitlistRow}>
+        <input
+          className={styles.waitlistInput}
+          type="email" placeholder={placeholder}
+          value={email} onChange={e => { setEmail(e.target.value); setError('') }}
+        />
+        <select className={styles.waitlistSelect} value={role} onChange={e => setRole(e.target.value)}>
+          <option value="">I am a…</option>
+          <option value="game_director">Game Director</option>
+          <option value="ref_scheduler">Referee Scheduler</option>
+          <option value="sk_scheduler">Scorekeeper Scheduler</option>
+          <option value="referee">Referee</option>
+          <option value="scorekeeper">Scorekeeper</option>
+        </select>
+        <button className={styles.waitlistBtn} type="submit" disabled={loading}>
+          {loading ? 'Joining…' : label}
+        </button>
+      </div>
+      {error && <div className={styles.waitlistError}>{error}</div>}
+    </form>
+  )
+}
+
 export default function Landing() {
   const navigate = useNavigate()
+
   return (
     <div className={styles.page}>
       {/* Nav */}
@@ -36,25 +97,24 @@ export default function Landing() {
         <img src="/logos/GAMECREWHQ-LOGO-LONG-BLKBG-transparent.png" alt="GameCrewHQ" className={styles.navLogo} />
         <div className={styles.navActions}>
           <button className={styles.navSignIn} onClick={() => navigate('/signin')}>Sign In</button>
-          <button className={styles.navSignUp} onClick={() => navigate('/signup')}>Get Started Free</button>
         </div>
       </nav>
 
       {/* Hero */}
       <section className={styles.hero}>
         <div className={styles.heroContent}>
-          <div className={styles.heroBadge}>Built for hockey officials</div>
+          <div className={styles.heroBadge}>🚀 Coming Soon</div>
           <h1 className={styles.heroTitle}>
             The Game Crew<br />Management Platform
           </h1>
           <p className={styles.heroSub}>
-            Connect Game Directors, Schedulers, Referees, and Scorekeepers on one platform. Schedule games, assign officials, sync calendars, and pay your crew — automatically.
+            GameCrewHQ is the all-in-one platform for hockey officials, schedulers, and game directors. Schedule games, assign crews, sync calendars, and pay officials — automatically.
           </p>
-          <div className={styles.heroCtas}>
-            <button className={styles.ctaPrimary} onClick={() => navigate('/signup')}>Get Started Free</button>
-            <button className={styles.ctaSecondary} onClick={() => navigate('/signin')}>Sign In</button>
-          </div>
-          <div className={styles.heroNote}>Free to start · No credit card required</div>
+          <p className={styles.heroSub} style={{ color:'rgba(255,255,255,.45)', fontSize:14, marginTop:-10 }}>
+            We're putting the finishing touches on the platform. Join the waitlist to get early access when we launch.
+          </p>
+          <WaitlistForm label="Join the Waitlist" placeholder="Your email address" />
+          <div className={styles.heroNote}>No spam · Unsubscribe anytime · Early access for waitlist members</div>
         </div>
         <div className={styles.heroVisual}>
           <div className={styles.heroCard}>
@@ -133,11 +193,11 @@ export default function Landing() {
         </div>
       </section>
 
-      {/* CTA */}
+      {/* Bottom CTA */}
       <section className={styles.cta}>
-        <h2 className={styles.ctaTitle}>Ready to run a tighter crew?</h2>
-        <p className={styles.ctaSub}>Join game directors, schedulers, and officials who use GameCrewHQ to run smoother games.</p>
-        <button className={styles.ctaPrimary} onClick={() => navigate('/signup')}>Get Started Free</button>
+        <h2 className={styles.ctaTitle}>Be first on the ice.</h2>
+        <p className={styles.ctaSub}>Join the waitlist and get early access when GameCrewHQ launches.</p>
+        <WaitlistForm label="Get Early Access" placeholder="Enter your email" />
       </section>
 
       {/* Footer */}
