@@ -179,7 +179,7 @@ export default function ProfileFinances() {
                 <span className={styles.stripeBannerIcon}>✅</span>
                 <div>
                   <div className={styles.stripeBannerTitle}>Bank Account Connected</div>
-                  <div className={styles.stripeBannerSub}>You can send and receive payments through RefSync</div>
+                  <div className={styles.stripeBannerSub}>You can send and receive payments through GameCrewHQ</div>
                 </div>
               </div>
               <Button variant="secondary" size="sm" onClick={handleStripeDashboard}>

@@ -31,6 +31,8 @@ export default function OfficialHome() {
   const upcomingRef = upcoming.filter(g => g.assignedOfficials?.find(o => o.uid === profile?.uid && o.role !== 'Scorekeeper'))
   const upcomingSK  = upcoming.filter(g => g.assignedOfficials?.find(o => o.uid === profile?.uid && o.role === 'Scorekeeper'))
 
+  const stripeConnected = !!profile?.stripeAccountId && !!profile?.stripeOnboarded
+
   if (loading) return <div className={styles.center}><Spinner size="lg" /></div>
 
   return (
@@ -45,6 +47,26 @@ export default function OfficialHome() {
           {isScorekeeper && !isReferee && ' · Scorekeeper'}
         </p>
       </div>
+
+      {/* Stripe connection banner — critical for getting paid */}
+      {!stripeConnected && (
+        <div style={{
+          background: 'rgba(255,97,0,.08)', border: '1.5px solid var(--orange)',
+          borderRadius: 'var(--radius-md)', padding: '14px 18px',
+          display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+        }}>
+          <div style={{ fontSize: 26 }}>🏦</div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, marginBottom: 3 }}>Connect your bank account to get paid</div>
+            <div style={{ fontSize: 13, color: 'var(--color-muted)', lineHeight: 1.5 }}>
+              Schedulers pay you directly to your bank account via Stripe. You won't receive any payments until your bank account is connected — it takes about 2 minutes.
+            </div>
+          </div>
+          <Button variant="primary" onClick={() => navigate('/profile/finances')}>
+            Connect Bank Account →
+          </Button>
+        </div>
+      )}
 
       {/* Pending connections — roster invites from schedulers */}
       <PendingConnections filterTypes={['scheduler-official']} />
