@@ -85,9 +85,10 @@ export default function ProfileFinances() {
     setConnecting(true)
     try {
       const { url } = await connectBankAccount(user.uid, profile.email, profile.displayName)
-      window.location.href = url
+      window.open(url, '_blank', 'noopener,noreferrer')
     } catch (err) {
       toast.error(err.message)
+    } finally {
       setConnecting(false)
     }
   }
