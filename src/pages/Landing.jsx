@@ -1,19 +1,30 @@
 import { useNavigate } from 'react-router-dom'
 import styles from './Landing.module.css'
 
+const IconCalendar = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="3" y1="10" x2="21" y2="10"/></svg>
+const IconClock    = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+const IconCard     = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><line x1="1" y1="10" x2="23" y2="10"/></svg>
+const IconPhone    = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><line x1="12" y1="18" x2="12" y2="18" strokeWidth="2.5"/></svg>
+const IconBolt     = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+const IconReceipt  = () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16l4-2 4 2 4-2 4 2V8z"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+
+const IconPuck     = () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="16" rx="10" ry="4"/><path d="M2 16V8a10 4 0 0 1 20 0v8"/><path d="M2 12a10 4 0 0 0 20 0"/></svg>
+const IconClipboard= () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><rect x="8" y="2" width="8" height="4" rx="1"/></svg>
+const IconShield   = () => <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+
 const FEATURES = [
-  { icon: '📋', title: 'Smart Scheduling', desc: 'Game Directors send RFQs to schedulers. Schedulers fill crews. Everyone stays in sync.' },
-  { icon: '📅', title: 'Calendar Sync',    desc: 'Officials get games in Apple Calendar, Google Calendar, or Outlook — automatically.' },
-  { icon: '💳', title: 'Built-in Payments', desc: 'Directors pay schedulers. Schedulers pay officials. All via Stripe — no checks, no Venmo.' },
-  { icon: '📱', title: 'SMS Reminders',    desc: 'Officials get texts 24 hours and 2 hours before every game. No more no-shows.' },
-  { icon: '⚡', title: 'Auto-Assign',      desc: 'One click fills open slots based on availability, certification, and workload balance.' },
-  { icon: '🧾', title: 'Expense Reports',  desc: 'Officials submit mileage, hotel, and gear. Schedulers approve with one click.' },
+  { Icon: IconClipboard, title: 'Smart Scheduling',  desc: 'Game Directors send RFQs to schedulers. Schedulers fill crews. Everyone stays in sync.' },
+  { Icon: IconCalendar,  title: 'Calendar Sync',     desc: 'Officials get games in Apple Calendar, Google Calendar, or Outlook — automatically.' },
+  { Icon: IconCard,      title: 'Built-in Payments', desc: 'Directors pay schedulers. Schedulers pay officials. All via Stripe — no checks, no Venmo.' },
+  { Icon: IconPhone,     title: 'SMS Reminders',     desc: 'Officials get texts 24 hours and 2 hours before every game. No more no-shows.' },
+  { Icon: IconBolt,      title: 'Auto-Assign',       desc: 'One click fills open slots based on availability, certification, and workload balance.' },
+  { Icon: IconReceipt,   title: 'Expense Reports',   desc: 'Officials submit mileage, hotel, and gear. Schedulers approve with one click.' },
 ]
 
 const ROLES = [
-  { icon: '🏒', role: 'Game Directors', desc: 'Post events, connect with schedulers, pay invoices in-app. Know your crew is covered before puck drop.' },
-  { icon: '📋', role: 'Schedulers',     desc: 'Manage your roster, assign officials, track payroll, and get paid — all in one place.' },
-  { icon: '🦺', role: 'Officials',      desc: 'See your schedule, set availability, sync to your calendar, and get paid automatically.' },
+  { Icon: IconPuck,      role: 'Game Directors', desc: 'Post events, connect with schedulers, pay invoices in-app. Know your crew is covered before puck drop.' },
+  { Icon: IconClipboard, role: 'Schedulers',     desc: 'Manage your roster, assign officials, track payroll, and get paid — all in one place.' },
+  { Icon: IconShield,    role: 'Officials',      desc: 'See your schedule, set availability, sync to your calendar, and get paid automatically.' },
 ]
 
 export default function Landing() {
@@ -76,7 +87,7 @@ export default function Landing() {
         <div className={styles.featuresGrid}>
           {FEATURES.map(f => (
             <div key={f.title} className={styles.featureCard}>
-              <div className={styles.featureIcon}>{f.icon}</div>
+              <div className={styles.featureIcon}><f.Icon /></div>
               <div className={styles.featureTitle}>{f.title}</div>
               <div className={styles.featureDesc}>{f.desc}</div>
             </div>
@@ -90,7 +101,7 @@ export default function Landing() {
         <div className={styles.rolesGrid}>
           {ROLES.map(r => (
             <div key={r.role} className={styles.roleCard}>
-              <div className={styles.roleIcon}>{r.icon}</div>
+              <div className={styles.roleIcon}><r.Icon /></div>
               <div className={styles.roleTitle}>{r.role}</div>
               <div className={styles.roleDesc}>{r.desc}</div>
             </div>

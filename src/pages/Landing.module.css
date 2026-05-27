@@ -47,7 +47,7 @@
 @media (max-width:500px) { .featuresGrid { grid-template-columns:1fr; } }
 .featureCard  { background:#111; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:24px; transition:border-color .15s; }
 .featureCard:hover { border-color:rgba(255,97,0,.4); }
-.featureIcon  { font-size:28px; margin-bottom:12px; }
+.featureIcon  { color:#fff; opacity:.9; margin-bottom:14px; display:flex; }
 .featureTitle { font-size:15px; font-weight:700; margin-bottom:6px; }
 .featureDesc  { font-size:13.5px; color:rgba(255,255,255,.55); line-height:1.55; }
 
@@ -55,7 +55,7 @@
 .rolesGrid { display:grid; grid-template-columns:repeat(3,1fr); gap:20px; max-width:1100px; margin:0 auto; }
 @media (max-width:760px) { .rolesGrid { grid-template-columns:1fr; } .roles { padding:48px 20px; } }
 .roleCard  { background:#111; border:1px solid rgba(255,255,255,.08); border-radius:14px; padding:28px; text-align:center; }
-.roleIcon  { font-size:36px; margin-bottom:12px; }
+.roleIcon  { color:#fff; opacity:.9; margin-bottom:14px; display:flex; justify-content:center; }
 .roleTitle { font-size:17px; font-weight:800; font-family:var(--font-display); margin-bottom:8px; }
 .roleDesc  { font-size:13.5px; color:rgba(255,255,255,.55); line-height:1.6; }
 
