@@ -71,21 +71,33 @@ export default function ProfileFinances() {
     return () => queries.forEach(u => u())
   }, [user, isScheduler, isDirector, isOfficial])
 
-  // Handle Stripe return
+  // Handle Stripe return — works for both same-tab and new-tab flows
   useEffect(() => {
     const params = new URLSearchParams(window.location.search)
     if (params.get('stripe') === 'success') {
       refreshProfile()
-      toast.success('Bank account connected successfully!')
+      toast.success('Bank account connected!')
       window.history.replaceState({}, '', '/profile/finances')
     }
   }, [])
+
+  // Poll for stripeOnboarded update when user hasn't connected yet
+  // (handles new-tab flow where the return URL fires in a different window)
+  useEffect(() => {
+    if (stripeConnected) return // already connected, no need to poll
+    const interval = setInterval(async () => {
+      await refreshProfile()
+    }, 5000) // check every 5 seconds
+    return () => clearInterval(interval)
+  }, [stripeConnected])
 
   const handleConnectBank = async () => {
     setConnecting(true)
     try {
       const { url } = await connectBankAccount(user.uid, profile.email, profile.displayName)
       window.open(url, '_blank', 'noopener,noreferrer')
+      // Show a hint since the return URL fires in the new tab
+      toast('Complete Stripe onboarding in the new tab. This page will update automatically.', { icon: 'ℹ️', duration: 6000 })
     } catch (err) {
       toast.error(err.message)
     } finally {
@@ -196,9 +208,12 @@ export default function ProfileFinances() {
                   <div className={styles.stripeBannerSub}>Required to {isScheduler ? 'receive invoice payments and pay officials' : 'receive game payments'}</div>
                 </div>
               </div>
-              <Button variant="primary" loading={connecting} onClick={handleConnectBank}>
-                Connect Bank Account
-              </Button>
+              <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+                <Button variant="ghost" size="sm" onClick={refreshProfile} title="Refresh status">↻</Button>
+                <Button variant="primary" loading={connecting} onClick={handleConnectBank}>
+                  Connect Bank Account
+                </Button>
+              </div>
             </>
           )}
         </div>
