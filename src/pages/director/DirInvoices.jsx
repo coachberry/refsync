@@ -169,11 +169,35 @@ export default function DirInvoices() {
                         loading={payingId === inv.id + 'us_bank_account'}
                         onClick={() => handlePay(inv, 'us_bank_account')}
                       >
-                        🏦 Pay by ACH (Bank Transfer)
+                        🏦 Pay by ACH
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        style={{ fontSize:12.5, color:'var(--color-muted)' }}
+                        loading={payingId === inv.id + 'external'}
+                        onClick={async () => {
+                          const method = window.prompt('How are you paying? (e.g. Check, Cash, Venmo, Zelle)', 'Check')
+                          if (method === null) return
+                          setPayingId(inv.id + 'external')
+                          try {
+                            const { updateDoc, doc: fdoc, serverTimestamp: sts } = await import('firebase/firestore')
+                            const { db: fdb } = await import('@/lib/firebase')
+                            await updateDoc(fdoc(fdb, 'invoices', inv.id), {
+                              status: 'paid',
+                              paidMethod: method.trim() || 'External',
+                              paidExternal: true,
+                              paidAt: new Date().toISOString(),
+                            })
+                            toast.success(`Invoice marked as paid via ${method || 'external'}`)
+                          } catch { toast.error('Failed to update') }
+                          finally { setPayingId(null) }
+                        }}
+                      >
+                        Mark Paid Externally
                       </Button>
                     </div>
                     <div className={styles.feeNote}>
-                      Card: 2.9% + $0.30 processing fee added · ACH: 0.8% (max $5) — cheaper for large invoices
+                      Card: 2.9% + $0.30 · ACH: 0.8% (max $5) · External: no fee, tracked for records
                     </div>
                   </div>
                 )}
@@ -183,9 +207,10 @@ export default function DirInvoices() {
                     ⏳ Payment processing — this usually takes a few minutes
                   </div>
                 )}
-                {isPaid && inv.paidAt && (
+                {isPaid && (
                   <div className={styles.paidNotice}>
-                    ✅ Paid {format(inv.paidAt.toDate?.() ?? new Date(inv.paidAt), 'MMM d, yyyy')}
+                    ✅ Paid{inv.paidAt ? ` ${format(inv.paidAt.toDate?.() ?? new Date(inv.paidAt), 'MMM d, yyyy')}` : ''}
+                    {inv.paidMethod ? ` · ${inv.paidMethod}` : inv.paidExternal ? '' : ' · via Stripe'}
                   </div>
                 )}
               </div>
