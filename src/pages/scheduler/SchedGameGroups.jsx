@@ -384,7 +384,6 @@ export default function SchedGameGroups() {
                   return (
                     <div className={styles.fillBar}>
                       <div className={styles.fillProgress} style={{ width: `${pct}%` }} />
-                      <span className={styles.fillLabel}>{filled}/{total} filled</span>
                     </div>
                   )
                 })()}
@@ -413,10 +412,18 @@ export default function SchedGameGroups() {
                               <div className={styles.gameTitle}>{game.homeTeam} vs {game.awayTeam}</div>
                               <div className={styles.gameMeta}>{format(gd, 'h:mm a')} · {game.venue}{game.division ? ` · ${game.division}` : ''}</div>
                               <div className={styles.gameCrew}>
-                                {(game.assignedOfficials ?? []).length > 0
-                                  ? game.assignedOfficials.map(o => `${o.name?.split(' ')[0]} (${o.role})`).join(', ')
-                                  : <span style={{ color:'var(--color-muted)', fontStyle:'italic' }}>No officials assigned</span>
-                                }
+                                {(() => {
+                                  const all = game.assignedOfficials ?? []
+                                  const mine = all.filter(o => {
+                                    if (isBothScheduler) return true
+                                    if (isRefScheduler) return o.role?.startsWith('Referee') || o.role?.startsWith('Linesman')
+                                    if (isSKScheduler)  return o.role?.startsWith('Scorekeeper')
+                                    return true
+                                  })
+                                  return mine.length > 0
+                                    ? mine.map(o => `${o.name?.split(' ')[0]} (${o.role})`).join(', ')
+                                    : <span style={{ color:'var(--color-muted)', fontStyle:'italic' }}>No officials assigned</span>
+                                })()}
                               </div>
                             </div>
                             <div className={styles.gameRowRight}>
