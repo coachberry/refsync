@@ -1230,7 +1230,7 @@ function QuotesModal({ open, onClose, group, directorUid }) {
 function ViewGamesModal({ open, onClose, group }) {
   const [games, setGames]     = useState([])
   const [loading, setLoading] = useState(true)
-  const [sortField, setSortField] = useState('gameDate')
+  const [selectedOfficial, setSelectedOfficial] = useState(null)
 
   useEffect(() => {
     if (!open || !group?.id) return
@@ -1239,84 +1239,164 @@ function ViewGamesModal({ open, onClose, group }) {
       getDocs(query(collection(db, 'games'), where('groupId', '==', group.id)))
     ).then(snap => {
       const data = snap.docs.map(d => ({ id: d.id, ...d.data() }))
-      data.sort((a, b) => {
-        const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
-        const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
-        return da - db_
-      })
+        .sort((a, b) => {
+          const da = a.gameDate?.toDate?.() ?? new Date(a.gameDate)
+          const db_ = b.gameDate?.toDate?.() ?? new Date(b.gameDate)
+          return da - db_
+        })
       setGames(data)
       setLoading(false)
     }).catch(() => setLoading(false))
   }, [open, group?.id])
 
-  const open_   = games.filter(g => g.status === 'open').length
-  const filled  = games.filter(g => g.status !== 'open').length
+  const allFilled = games.length > 0 && games.every(g => g.allSlotsFull)
+  const filledCount = games.filter(g => g.allSlotsFull).length
 
   return (
     <Modal open={open} onClose={onClose} title={`Games — ${group?.name ?? ''}`} size="lg"
       footer={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%' }}>
-          <span style={{ fontSize: 12.5, color: 'var(--color-muted)' }}>
-            {games.length} games · {open_} open · {filled} filled
+        <div style={{ display:'flex', alignItems:'center', gap:10, width:'100%' }}>
+          <span style={{ fontSize:12.5, color:'var(--color-muted)' }}>
+            {games.length} games · {filledCount} fully staffed · {games.length - filledCount} open
           </span>
-          <div style={{ flex: 1 }} />
+          <div style={{ flex:1 }} />
           <Button variant="ghost" onClick={onClose}>Close</Button>
         </div>
       }
     >
       {loading ? (
-        <div style={{ display: 'flex', justifyContent: 'center', padding: 40 }}>
-          <Spinner size="lg" />
-        </div>
+        <div style={{ display:'flex', justifyContent:'center', padding:40 }}><Spinner size="lg" /></div>
       ) : games.length === 0 ? (
-        <EmptyState icon="🏒" title="No games added yet"
-          message="Use the + Add Games button on the event card to add games." />
+        <EmptyState icon="🏒" title="No games added yet" />
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ background: 'var(--color-surface-2)', borderBottom: '1px solid var(--color-border)' }}>
-                {['Date', 'Time', 'Home Team', 'Away Team', 'Venue', 'Division', 'Duration', 'Refs', 'Lines', 'SKs', 'Status'].map(h => (
-                  <th key={h} style={{ textAlign: 'left', padding: '8px 10px', fontSize: 10.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.5px', color: 'var(--color-muted)', whiteSpace: 'nowrap' }}>
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {games.map(g => {
-                const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
-                const statusColors = { open: '#dc2626', assigned: '#2563eb', completed: '#16a34a' }
-                return (
-                  <tr key={g.id} style={{ borderBottom: '1px solid var(--color-border)' }}
-                    onMouseEnter={e => e.currentTarget.style.background = 'var(--color-surface-2)'}
-                    onMouseLeave={e => e.currentTarget.style.background = ''}
-                  >
-                    <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', fontWeight: 600 }}>{format(gd, 'MMM d, yyyy')}</td>
-                    <td style={{ padding: '9px 10px', whiteSpace: 'nowrap', color: 'var(--color-muted)' }}>{format(gd, 'h:mm a')}</td>
-                    <td style={{ padding: '9px 10px', fontWeight: 600 }}>{g.homeTeam}</td>
-                    <td style={{ padding: '9px 10px', fontWeight: 600 }}>{g.awayTeam}</td>
-                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)' }}>{g.venue || '—'}</td>
-                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)' }}>{g.division || '—'}</td>
-                    <td style={{ padding: '9px 10px', color: 'var(--color-muted)', textAlign: 'center' }}>{g.duration ? `${g.duration}hr` : '—'}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.refs ?? '—'}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.linesmen ?? '—'}</td>
-                    <td style={{ padding: '9px 10px', textAlign: 'center' }}>{g.scorekeepers ?? '—'}</td>
-                    <td style={{ padding: '9px 10px' }}>
-                      <span style={{
-                        fontSize: 11, fontWeight: 700, padding: '2px 8px', borderRadius: 10,
-                        background: `${statusColors[g.status] ?? '#6b7280'}18`,
-                        color: statusColors[g.status] ?? '#6b7280',
-                        textTransform: 'capitalize',
-                      }}>{g.status}</span>
-                    </td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
+        <div style={{ display:'flex', flexDirection:'column', gap:0 }}>
+          {allFilled && (
+            <div style={{ background:'rgba(0,191,99,.1)', border:'1px solid var(--green)', borderRadius:8, padding:'10px 14px', marginBottom:12, fontSize:13, color:'#007a40', fontWeight:600 }}>
+              ✅ All {games.length} games are fully staffed with officials.
+            </div>
+          )}
+          {games.map(g => {
+            const gd = g.gameDate?.toDate?.() ?? new Date(g.gameDate)
+            const crew = g.assignedOfficials ?? []
+            const filled = g.allSlotsFull
+            return (
+              <div key={g.id} style={{ borderBottom:'1px solid var(--color-border)', padding:'14px 0' }}>
+                {/* Game header */}
+                <div style={{ display:'flex', alignItems:'flex-start', gap:12, marginBottom: crew.length ? 10 : 0 }}>
+                  <div style={{ minWidth:44, textAlign:'center' }}>
+                    <div style={{ fontSize:10, fontWeight:700, textTransform:'uppercase', color:'var(--color-muted)', letterSpacing:.5 }}>{format(gd, 'MMM')}</div>
+                    <div style={{ fontSize:22, fontWeight:800, fontFamily:'var(--font-display)', lineHeight:1 }}>{format(gd, 'd')}</div>
+                  </div>
+                  <div style={{ flex:1 }}>
+                    <div style={{ fontSize:14, fontWeight:700 }}>{g.homeTeam} vs {g.awayTeam}</div>
+                    <div style={{ fontSize:12, color:'var(--color-muted)', marginTop:2 }}>
+                      {format(gd, 'h:mm a')} · {g.venue || '—'}{g.division ? ` · ${g.division}` : ''}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{
+                      fontSize:11, fontWeight:700, padding:'3px 10px', borderRadius:20,
+                      background: filled ? 'rgba(0,191,99,.12)' : 'rgba(255,97,0,.1)',
+                      color: filled ? 'var(--green)' : 'var(--orange)',
+                    }}>
+                      {filled ? '✓ Fully Staffed' : `${crew.length} / ${(g.refs??0)+(g.linesmen??0)+(g.scorekeepers??0)} assigned`}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Crew */}
+                {crew.length > 0 ? (
+                  <div style={{ display:'flex', flexWrap:'wrap', gap:8, paddingLeft:56 }}>
+                    {crew.map((o, i) => (
+                      <button key={i}
+                        onClick={() => setSelectedOfficial(o)}
+                        style={{
+                          display:'flex', alignItems:'center', gap:8, padding:'6px 12px',
+                          background:'var(--color-surface-2)', border:'1px solid var(--color-border)',
+                          borderRadius:20, cursor:'pointer', fontSize:12.5, fontWeight:600,
+                          fontFamily:'var(--font-body)', transition:'all .12s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = 'var(--orange)'}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = 'var(--color-border)'}
+                      >
+                        <span style={{ fontSize:10, color:'var(--color-muted)', fontWeight:400 }}>{o.role}</span>
+                        <span>{o.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                ) : (
+                  <div style={{ paddingLeft:56, fontSize:12.5, color:'var(--color-muted)', fontStyle:'italic' }}>
+                    No officials assigned yet
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
+
+      {/* Official profile quick-view */}
+      {selectedOfficial && (
+        <OfficialQuickView official={selectedOfficial} onClose={() => setSelectedOfficial(null)} />
+      )}
+    </Modal>
+  )
+}
+
+function OfficialQuickView({ official, onClose }) {
+  const [profile, setProfile] = useState(null)
+  useEffect(() => {
+    import('firebase/firestore').then(({ getDoc, doc: fdoc }) =>
+      getDoc(fdoc(db, 'users', official.uid))
+    ).then(snap => snap.exists() && setProfile(snap.data())).catch(() => {})
+  }, [official.uid])
+
+  return (
+    <Modal open={true} onClose={onClose} title="Official Profile" size="sm"
+      footer={<Button variant="ghost" onClick={onClose}>Close</Button>}
+    >
+      <div style={{ display:'flex', flexDirection:'column', gap:16, alignItems:'center', paddingTop:8 }}>
+        <div style={{ width:72, height:72, borderRadius:'50%', background:'var(--orange)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:28, color:'#fff', fontWeight:700, fontFamily:'var(--font-display)' }}>
+          {(profile?.displayName ?? official.name ?? '?')[0]}
+        </div>
+        <div style={{ textAlign:'center' }}>
+          <div style={{ fontSize:20, fontWeight:800, fontFamily:'var(--font-display)' }}>{profile?.displayName ?? official.name}</div>
+          <div style={{ fontSize:13, color:'var(--color-muted)', marginTop:4 }}>{official.role}</div>
+        </div>
+        {profile && (
+          <div style={{ width:'100%', display:'flex', flexDirection:'column', gap:8 }}>
+            {profile.officialProfile?.certLevel && (
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'8px 0', borderBottom:'1px solid var(--color-border)' }}>
+                <span style={{ color:'var(--color-muted)' }}>Certification</span>
+                <span style={{ fontWeight:600 }}>{profile.officialProfile.certLevel}</span>
+              </div>
+            )}
+            {profile.officialProfile?.certNumber && (
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'8px 0', borderBottom:'1px solid var(--color-border)' }}>
+                <span style={{ color:'var(--color-muted)' }}>USAH #</span>
+                <span style={{ fontWeight:600 }}>{profile.officialProfile.certNumber}</span>
+              </div>
+            )}
+            {profile.officialProfile?.jerseyNumber && (
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'8px 0', borderBottom:'1px solid var(--color-border)' }}>
+                <span style={{ color:'var(--color-muted)' }}>Jersey #</span>
+                <span style={{ fontWeight:600 }}>#{profile.officialProfile.jerseyNumber}</span>
+              </div>
+            )}
+            {profile.bio && (
+              <div style={{ fontSize:13, color:'var(--color-muted)', lineHeight:1.5, padding:'8px 0', borderBottom:'1px solid var(--color-border)' }}>
+                {profile.bio}
+              </div>
+            )}
+            {official.pay !== undefined && (
+              <div style={{ display:'flex', justifyContent:'space-between', fontSize:13, padding:'8px 0' }}>
+                <span style={{ color:'var(--color-muted)' }}>Pay this game</span>
+                <span style={{ fontWeight:700, color:'var(--green)' }}>${(official.pay ?? 0).toFixed(2)}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </Modal>
   )
 }

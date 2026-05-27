@@ -63,6 +63,15 @@ export default function SchedGameGroups() {
   const [selectedGame, setSelectedGame]   = useState(null)
   const [selectedRole, setSelectedRole]   = useState('')
   const [assigning, setAssigning]         = useState(null)
+  const [assignTab, setAssignTab]         = useState('manual') // 'manual' | 'requests'
+  const [officialSearch, setOfficialSearch] = useState('')
+  const [officialSort, setOfficialSort]   = useState('availability')
+
+  // Reset panel state when game changes
+  useEffect(() => {
+    setAssignTab('manual')
+    setOfficialSearch('')
+  }, [selectedGame?.id])
 
   // Subscribe to all games for this scheduler's groups
   useEffect(() => {
@@ -165,8 +174,59 @@ export default function SchedGameGroups() {
     return !!game.allSlotsFull
   }
 
+  const handleAutoAssign = async (game) => {
+    setAssigning('auto')
+    try {
+      const schedulerType = isRefScheduler && !isBothScheduler ? 'ref_scheduler'
+                          : isSKScheduler  && !isBothScheduler ? 'sk_scheduler'
+                          : 'both'
+      const res = await fetch('https://autoassigngame-hmh3r2a4ra-uc.a.run.app', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ gameId: game.id, schedulerId: user.uid, schedulerType }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Auto-assign failed')
+      if (!data.assigned?.length) toast('No available officials found for this slot', { icon: '⚠️' })
+      else toast.success(`${data.assigned.length} official${data.assigned.length > 1 ? 's' : ''} auto-assigned!`)
+    } catch (err) { toast.error('Auto-assign failed: ' + err.message) }
+    finally { setAssigning(null) }
+  }
+
+  const handleApproveRequest = async (req) => {
+    if (!selectedGame) return
+    setAssigning(req.uid)
+    try {
+      const pay = lookupPay(selectedGame.division, selectedRole)
+      await assignOfficial(selectedGame.id, {
+        uid: req.uid, name: req.name, role: selectedRole, pay,
+      }, user.uid)
+      // Update request status
+      const updatedRequests = (selectedGame.requests ?? []).map(r =>
+        r.uid === req.uid ? { ...r, status: 'approved' } : r
+      )
+      await updateDoc(doc(db, 'games', selectedGame.id), { requests: updatedRequests })
+      toast.success(`${req.name} approved and assigned`)
+    } catch (err) { toast.error('Failed: ' + err.message) }
+    finally { setAssigning(null) }
+  }
+
+  const handleDeclineRequest = async (req) => {
+    if (!selectedGame) return
+    const updatedRequests = (selectedGame.requests ?? []).map(r =>
+      r.uid === req.uid ? { ...r, status: 'declined' } : r
+    )
+    try {
+      await updateDoc(doc(db, 'games', selectedGame.id), { requests: updatedRequests })
+      toast.success('Request declined')
+    } catch { toast.error('Failed to decline') }
+  }
+
   const handleAssign = async (official) => {
     if (!selectedGame || !user || !selectedRole) return
+    // Prevent assigning same official twice on same game
+    const alreadyOnGame = (selectedGame.assignedOfficials ?? []).some(o => o.uid === official.uid)
+    if (alreadyOnGame) { toast.error(`${official.displayName} is already assigned to this game`); return }
     setAssigning(official.uid)
     try {
       const pay = lookupPay(selectedGame.division, selectedRole)
@@ -379,112 +439,220 @@ export default function SchedGameGroups() {
         {/* ── Assign panel ── */}
         {selectedGame && (
           <div className={styles.assignPanel}>
+            {/* Header */}
             <div className={styles.assignPanelHeader}>
-              <div>
+              <div style={{ flex:1 }}>
                 <div className={styles.assignPanelTitle}>{selectedGame.homeTeam} vs {selectedGame.awayTeam}</div>
                 <div className={styles.assignPanelMeta}>
-                  {format(selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate), 'EEE, MMM d · h:mm a')} · {selectedGame.venue}
+                  {format(selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate), 'EEE, MMM d · h:mm a')}
+                  {' · '}{selectedGame.venue}
+                  {selectedGame.division ? ` · ${selectedGame.division}` : ''}
                 </div>
               </div>
-              <button className={styles.closePanel} onClick={() => setSelectedGame(null)}>✕</button>
+              <div style={{ display:'flex', gap:8, flexShrink:0, alignItems:'flex-start' }}>
+                <Button size="sm" variant="teal" loading={assigning === 'auto'} onClick={() => handleAutoAssign(selectedGame)}>
+                  ⚡ Auto-Assign
+                </Button>
+                <button className={styles.closePanel} onClick={() => setSelectedGame(null)}>✕</button>
+              </div>
             </div>
 
             {/* Crew slots */}
             <div className={styles.crewSection}>
-              <div className={styles.crewSectionTitle}>Crew Slots</div>
+              <div className={styles.crewSectionTitle}>Crew Slots — click a slot to assign</div>
               {buildCrewSlots(selectedGame).length === 0 ? (
-                <div className={styles.noSlots}>No {isRefScheduler ? 'referee' : 'scorekeeper'} slots for this game.</div>
-              ) : buildCrewSlots(selectedGame).map((slot, i) => (
-                <div key={i} className={[styles.crewSlot, slot.assignedOfficial ? styles.slotFilled : styles.slotOpen].join(' ')}>
-                  <div className={styles.slotRole}>{slot.role}</div>
-                  {slot.assignedOfficial ? (
-                    <div className={styles.slotAssigned}>
-                      <span className={styles.slotName}>{slot.assignedOfficial.name}</span>
-                      <button className={styles.unassignBtn}
-                        onClick={() => handleUnassign(slot.assignedOfficial.uid, slot.role)}
-                        title="Unassign">✕</button>
-                    </div>
-                  ) : (
-                    <div className={styles.slotOpen}>
-                      <span className={styles.slotOpenLabel}>Open</span>
-                      <button className={[styles.selectSlotBtn, selectedRole === slot.role ? styles.selectSlotBtnActive : ''].join(' ')}
-                        onClick={() => setSelectedRole(slot.role)}>
-                        {selectedRole === slot.role ? '← Assigning' : 'Select'}
-                      </button>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Assigning role indicator */}
-            {selectedRole && (
-              <div className={styles.assigningRole}>
-                Assigning: <strong>{selectedRole}</strong>
-              </div>
-            )}
-
-            {/* Availability checkbox */}
-            <div className={styles.availCheck}>
-              <input type="checkbox" id="showUnavailPanel" checked={showUnavailable}
-                onChange={e => setShowUnavailable(e.target.checked)} style={{ width:14, height:14 }} />
-              <label htmlFor="showUnavailPanel" style={{ fontSize:12.5, cursor:'pointer', color:'var(--color-muted)' }}>
-                Show unavailable officials
-              </label>
-            </div>
-
-            {/* Official list */}
-            <div className={styles.officialList}>
-              {getRelevantOfficials()
-                .filter(o => {
-                  const gd = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
-                  const dayData = officialAvailability[o.uid]
-                  const avail = dayData === undefined ? 'unknown'
-                    : checkAvailability(dayData, format(gd, 'HH:mm'), selectedGame.duration ?? 1.5)
-                  return showUnavailable || avail !== 'unavailable'
-                })
-                .map(official => {
-                  const uid     = official.uid
-                  const gd      = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
-                  const dayData = officialAvailability[uid]
-                  const avail   = dayData === undefined ? 'unknown'
-                    : checkAvailability(dayData, format(gd, 'HH:mm'), selectedGame.duration ?? 1.5)
-                  const assigned    = (selectedGame.assignedOfficials ?? []).find(o => o.uid === uid && o.role === selectedRole)
-                  const assignedAny = (selectedGame.assignedOfficials ?? []).find(o => o.uid === uid)
-                  const slotFull    = buildCrewSlots(selectedGame).find(s => s.role === selectedRole)?.assignedOfficial != null
-
-                  return (
-                    <div key={uid} className={[styles.officialRow, assigned ? styles.officialRowAssigned : ''].join(' ')}>
-                      <Avatar name={official.displayName} size="sm" />
-                      <div className={styles.officialInfo}>
-                        <div className={styles.officialName}>{official.displayName}</div>
-                        <div className={styles.officialMeta}>
-                          {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
-                          <span style={{ marginLeft:8, fontWeight:600, color: AVAIL_COLORS[avail] }}>
-                            {avail === 'available' ? '✓ Available' : avail === 'insufficient' ? '⚠ Outside buffer' : avail === 'unavailable' ? '✗ Unavailable' : 'No availability set'}
-                          </span>
+                <div className={styles.noSlots}>No {isRefScheduler && !isBothScheduler ? 'referee' : 'scorekeeper'} slots for this game.</div>
+              ) : (
+                <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+                  {buildCrewSlots(selectedGame).map((slot, i) => (
+                    <div key={i} className={[
+                      styles.crewSlot,
+                      slot.assignedOfficial ? styles.slotFilled : styles.slotOpen,
+                      selectedRole === slot.role && !slot.assignedOfficial ? styles.slotSelecting : '',
+                    ].join(' ')}>
+                      <div className={styles.slotRole}>{slot.role}</div>
+                      {slot.assignedOfficial ? (
+                        <div className={styles.slotAssigned}>
+                          <span className={styles.slotName}>✓ {slot.assignedOfficial.name}</span>
+                          <button className={styles.unassignBtn}
+                            onClick={() => handleUnassign(slot.assignedOfficial.uid, slot.role)}
+                            title="Unassign">✕</button>
                         </div>
-                      </div>
-                      {assigned ? (
-                        <Button size="sm" variant="ghost" style={{ color:'var(--orange)' }}
-                          loading={assigning === uid}
-                          onClick={() => handleUnassign(uid, selectedRole)}>
-                          Unassign
-                        </Button>
-                      ) : slotFull ? (
-                        <Badge variant="gray">Slot filled</Badge>
                       ) : (
-                        <Button size="sm" variant={avail === 'unavailable' ? 'ghost' : 'primary'}
-                          loading={assigning === uid}
-                          onClick={() => handleAssign(official)}>
-                          Assign
-                        </Button>
+                        <button className={[styles.selectSlotBtn, selectedRole === slot.role ? styles.selectSlotBtnActive : ''].join(' ')}
+                          onClick={() => setSelectedRole(slot.role)}>
+                          {selectedRole === slot.role ? '← Selecting from list' : 'Select Official'}
+                        </button>
                       )}
                     </div>
-                  )
-                })
-              }
+                  ))}
+                </div>
+              )}
             </div>
+
+            {/* Panel tabs: Manual | Requests */}
+            <div className={styles.panelTabRow}>
+              <button className={[styles.panelTab, assignTab === 'manual' ? styles.panelTabActive : ''].join(' ')}
+                onClick={() => setAssignTab('manual')}>Manual Assign</button>
+              <button className={[styles.panelTab, assignTab === 'requests' ? styles.panelTabActive : ''].join(' ')}
+                onClick={() => setAssignTab('requests')}>
+                Requests
+                {(selectedGame.requests ?? []).filter(r => r.status === 'pending').length > 0 && (
+                  <span className={styles.reqBadge}>{(selectedGame.requests ?? []).filter(r => r.status === 'pending').length}</span>
+                )}
+              </button>
+            </div>
+
+            {/* Manual Assign tab */}
+            {assignTab === 'manual' && (
+              <>
+                {/* Search + filters */}
+                <div className={styles.officialToolbar}>
+                  <input
+                    className={styles.searchInput}
+                    placeholder="Search officials…"
+                    value={officialSearch}
+                    onChange={e => setOfficialSearch(e.target.value)}
+                  />
+                  <select className={styles.sortSelect} value={officialSort} onChange={e => setOfficialSort(e.target.value)}>
+                    <option value="availability">Sort: Availability first</option>
+                    <option value="name">Sort: Name A–Z</option>
+                    <option value="games">Sort: Fewest games</option>
+                  </select>
+                </div>
+                <div className={styles.availCheckRow}>
+                  <input type="checkbox" id="showUnavailPanel" checked={showUnavailable}
+                    onChange={e => setShowUnavailable(e.target.checked)} style={{ width:14, height:14 }} />
+                  <label htmlFor="showUnavailPanel" style={{ fontSize:12, cursor:'pointer', color:'var(--color-muted)' }}>
+                    Show unavailable officials
+                  </label>
+                </div>
+
+                {/* Assigning role indicator */}
+                {selectedRole && (
+                  <div className={styles.assigningRole}>
+                    Assigning to: <strong>{selectedRole}</strong>
+                    <span style={{ fontSize:11, color:'var(--color-muted)', marginLeft:8 }}>select a slot above to change</span>
+                  </div>
+                )}
+
+                {/* Official list */}
+                <div className={styles.officialList}>
+                  {(() => {
+                    const gd = selectedGame.gameDate?.toDate?.() ?? new Date(selectedGame.gameDate)
+                    const gameTimeStr = format(gd, 'HH:mm')
+
+                    const officials = getRelevantOfficials()
+                      .map(o => {
+                        const dayData = officialAvailability[o.uid]
+                        const avail = dayData === undefined ? 'unknown'
+                          : checkAvailability(dayData, gameTimeStr, selectedGame.duration ?? 1.5)
+                        return { ...o, avail }
+                      })
+                      .filter(o => {
+                        if (!showUnavailable && o.avail === 'unavailable') return false
+                        if (officialSearch) {
+                          const q = officialSearch.toLowerCase()
+                          return o.displayName?.toLowerCase().includes(q)
+                        }
+                        return true
+                      })
+                      .sort((a, b) => {
+                        if (officialSort === 'availability') {
+                          const order = { available:0, unknown:1, insufficient:2, unavailable:3 }
+                          return (order[a.avail] ?? 9) - (order[b.avail] ?? 9)
+                        }
+                        if (officialSort === 'name') return (a.displayName ?? '').localeCompare(b.displayName ?? '')
+                        if (officialSort === 'games') return (a.gameCount ?? 0) - (b.gameCount ?? 0)
+                        return 0
+                      })
+
+                    if (officials.length === 0) return (
+                      <div style={{ padding:'20px', textAlign:'center', color:'var(--color-muted)', fontSize:13 }}>
+                        {officialSearch ? 'No officials match your search.' : 'No available officials for this time slot.'}
+                      </div>
+                    )
+
+                    return officials.map(official => {
+                      const uid = official.uid
+                      const assignedToRole = (selectedGame.assignedOfficials ?? []).find(o => o.uid === uid && o.role === selectedRole)
+                      const assignedElsewhere = (selectedGame.assignedOfficials ?? []).find(o => o.uid === uid && o.role !== selectedRole)
+                      const slotFull = buildCrewSlots(selectedGame).find(s => s.role === selectedRole)?.assignedOfficial != null
+
+                      return (
+                        <div key={uid} className={[styles.officialRow, assignedToRole ? styles.officialRowAssigned : ''].join(' ')}>
+                          <Avatar name={official.displayName} size="sm" />
+                          <div className={styles.officialInfo}>
+                            <div className={styles.officialName}>{official.displayName}</div>
+                            <div className={styles.officialMeta}>
+                              {(official.subRoles ?? []).filter(s => ['referee','scorekeeper'].includes(s)).join(', ') || 'Official'}
+                              <span style={{ marginLeft:8, fontWeight:600, fontSize:11, color: AVAIL_COLORS[official.avail] }}>
+                                {official.avail === 'available'    ? '✓ Available'
+                                 : official.avail === 'insufficient' ? '⚠ Outside buffer'
+                                 : official.avail === 'unavailable'  ? '✗ Unavailable'
+                                 : 'No availability set'}
+                              </span>
+                              {assignedElsewhere && (
+                                <span style={{ marginLeft:6, fontSize:11, color:'var(--blue)' }}>· Already assigned ({assignedElsewhere.role})</span>
+                              )}
+                            </div>
+                          </div>
+                          {assignedToRole ? (
+                            <Button size="sm" variant="ghost" style={{ color:'var(--orange)', borderColor:'var(--orange-light)' }}
+                              loading={assigning === uid}
+                              onClick={() => handleUnassign(uid, selectedRole)}>
+                              Unassign
+                            </Button>
+                          ) : slotFull ? (
+                            <Badge variant="gray">Slot full</Badge>
+                          ) : (
+                            <Button size="sm"
+                              variant={official.avail === 'unavailable' ? 'ghost' : official.avail === 'available' ? 'primary' : 'secondary'}
+                              loading={assigning === uid}
+                              onClick={() => handleAssign(official)}>
+                              Assign
+                            </Button>
+                          )}
+                        </div>
+                      )
+                    })
+                  })()}
+                </div>
+              </>
+            )}
+
+            {/* Requests tab */}
+            {assignTab === 'requests' && (
+              <div className={styles.officialList}>
+                {(selectedGame.requests ?? []).length === 0 ? (
+                  <div style={{ padding:'24px', textAlign:'center', color:'var(--color-muted)', fontSize:13 }}>
+                    No officials have requested this game yet.
+                  </div>
+                ) : (
+                  (selectedGame.requests ?? []).map((req, i) => (
+                    <div key={i} className={styles.officialRow}>
+                      <Avatar name={req.name} size="sm" />
+                      <div className={styles.officialInfo}>
+                        <div className={styles.officialName}>{req.name}</div>
+                        <div className={styles.officialMeta}>
+                          {req.note && <span style={{ fontStyle:'italic' }}>"{req.note}"</span>}
+                        </div>
+                      </div>
+                      {req.status === 'pending' ? (
+                        <div style={{ display:'flex', gap:6 }}>
+                          <Button size="sm" variant="teal" loading={assigning === req.uid}
+                            onClick={() => handleApproveRequest(req)}>✓</Button>
+                          <Button size="sm" variant="ghost"
+                            onClick={() => handleDeclineRequest(req)}>✗</Button>
+                        </div>
+                      ) : (
+                        <Badge variant={req.status === 'approved' ? 'green' : 'red'}>{req.status}</Badge>
+                      )}
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>

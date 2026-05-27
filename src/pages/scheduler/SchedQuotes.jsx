@@ -101,7 +101,15 @@ export default function SchedQuotes() {
               <div className={styles.sectionLabel}>History</div>
               <div className={styles.rfqList}>
                 {activeRfqs.map(rfq => (
-                  <RFQCard key={rfq.id} rfq={rfq} onQuote={rfq.status === 'open' ? () => setQuoteTarget(rfq) : null} />
+                  <RFQCard key={rfq.id} rfq={rfq}
+                    onQuote={rfq.status === 'open' ? () => setQuoteTarget(rfq) : null}
+                    onArchive={async () => {
+                      if (!window.confirm('Mark this as "Invoice Sent" and remove from your history?')) return
+                      const { updateDoc, doc: fdoc } = await import('firebase/firestore')
+                      await updateDoc(fdoc(db, 'rfqs', rfq.id), { status: 'invoiced', invoicedAt: new Date().toISOString() })
+                      toast.success('Marked as invoiced')
+                    }}
+                  />
                 ))}
               </div>
             </>
@@ -123,7 +131,7 @@ export default function SchedQuotes() {
 }
 
 // ── RFQ Card ──────────────────────────────────────────────────────────────────
-function RFQCard({ rfq, onQuote, onReject, rejecting }) {
+function RFQCard({ rfq, onQuote, onReject, rejecting, onArchive }) {
   const meta = STATUS_META[rfq.status] ?? STATUS_META.open
   const receivedAt = rfq.createdAt?.toDate?.() ?? (rfq.createdAt ? new Date(rfq.createdAt) : null)
   const totalHours = rfq.totalHours ?? 0
@@ -287,7 +295,23 @@ function RFQCard({ rfq, onQuote, onReject, rejecting }) {
       )}
 
       {rfq.status === 'accepted' && (
-        <div className={styles.rfqAcceptedNotice}>✅ Your quote was accepted! Go to <strong>Finance → Create Invoice</strong> to bill the director and receive payment.</div>
+        <div className={styles.rfqAcceptedNotice}>
+          ✅ Your quote was accepted! Go to <strong>Finance → Create Invoice</strong> to bill the director.
+          {onArchive && (
+            <button onClick={onArchive} style={{
+              marginLeft:12, background:'none', border:'1px solid var(--green)',
+              color:'var(--green)', borderRadius:6, padding:'3px 10px',
+              fontSize:12, fontWeight:600, cursor:'pointer', fontFamily:'var(--font-body)',
+            }}>
+              ✓ Invoice Sent — Archive
+            </button>
+          )}
+        </div>
+      )}
+      {rfq.status === 'invoiced' && (
+        <div className={styles.rfqAcceptedNotice} style={{ color:'var(--color-muted)', background:'var(--color-surface-2)', border:'1px solid var(--color-border)' }}>
+          📄 Invoice sent — this request is archived.
+        </div>
       )}
       {rfq.status === 'not_selected' && (
         <div className={styles.rfqNotSelected}>Another scheduler was selected for this event.</div>
