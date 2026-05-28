@@ -37,16 +37,32 @@ export default function DirInvoices() {
   const handlePay = async (invoice, method) => {
     setPayingId(invoice.id + method)
     try {
+      // Validate invoice has required fields before calling server
+      if (!invoice.schedulerId) {
+        throw new Error('Invoice is missing scheduler ID — this invoice may have been created before this field was added. Please delete and recreate it.')
+      }
+
       const result = await createInvoicePayment(
         invoice.id, user.uid, invoice.schedulerId, invoice.amount, method
       )
-      if (!result.clientSecret) throw new Error('No client secret returned from server')
+
+      if (!result.clientSecret) {
+        throw new Error('Server did not return a payment token. Check that the scheduler has connected their bank account.')
+      }
 
       const stripe = await getStripe()
-      if (!stripe) throw new Error('Stripe failed to load — check your publishable key')
+      if (!stripe) {
+        throw new Error('Stripe.js failed to load. Check that VITE_STRIPE_PUBLISHABLE_KEY is set in Vercel.')
+      }
 
-      // Use redirect: 'always' so Stripe handles the payment UI on their hosted page
-      // This avoids needing an Elements provider mounted in the component
+      // Detect live/test key mismatch
+      const pubKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY ?? ''
+      const isTestPub = pubKey.startsWith('pk_test_')
+      const isTestSecret = result.clientSecret?.includes('_test_')
+      if (isTestPub !== isTestSecret) {
+        throw new Error(`Stripe key mismatch: frontend is using a ${isTestPub ? 'test' : 'live'} publishable key but the server returned a ${isTestSecret ? 'test' : 'live'} client secret. Both must match.`)
+      }
+
       const { error } = await stripe.confirmPayment({
         clientSecret: result.clientSecret,
         confirmParams: {
@@ -54,12 +70,10 @@ export default function DirInvoices() {
         },
         redirect: 'always',
       })
-      // If we get here without redirecting, there was an error
       if (error) throw new Error(error.message)
     } catch (err) {
-      console.error('Payment error:', err)
-      // Show the actual error message rather than generic text
-      toast.error(err.message ?? 'Payment failed')
+      console.error('Payment error full details:', err)
+      toast.error(err.message ?? 'Payment failed', { duration: 8000 })
     } finally {
       setPayingId(null)
     }
