@@ -40,16 +40,26 @@ export default function DirInvoices() {
       const result = await createInvoicePayment(
         invoice.id, user.uid, invoice.schedulerId, invoice.amount, method
       )
+      if (!result.clientSecret) throw new Error('No client secret returned from server')
+
       const stripe = await getStripe()
+      if (!stripe) throw new Error('Stripe failed to load — check your publishable key')
+
+      // Use redirect: 'always' so Stripe handles the payment UI on their hosted page
+      // This avoids needing an Elements provider mounted in the component
       const { error } = await stripe.confirmPayment({
         clientSecret: result.clientSecret,
         confirmParams: {
           return_url: `${window.location.origin}/director/invoices?paid=${invoice.id}`,
         },
+        redirect: 'always',
       })
+      // If we get here without redirecting, there was an error
       if (error) throw new Error(error.message)
     } catch (err) {
-      toast.error(err.message)
+      console.error('Payment error:', err)
+      // Show the actual error message rather than generic text
+      toast.error(err.message ?? 'Payment failed')
     } finally {
       setPayingId(null)
     }

@@ -5,7 +5,7 @@ import { useSubRoles } from '@/hooks/useSubRoles'
 import { useRoster } from '@/hooks/useRoster'
 import { useConnections } from '@/hooks/useConnections'
 import { db } from '@/lib/firebase'
-import { collection, query, where, getDocs, limit, getDoc, doc, setDoc, serverTimestamp } from 'firebase/firestore'
+import { collection, query, where, getDocs, limit, getDoc, doc, setDoc, addDoc, serverTimestamp } from 'firebase/firestore'
 import { sendConnectionRequest, respondToConnection } from '@/services/firestore'
 import { Card, CardHeader, CardTitle, CardBody, Badge, EmptyState, Modal } from '@/components/ui'
 import { Input } from '@/components/ui/Input'
@@ -107,6 +107,8 @@ export default function SchedRoster() {
     finally { setWithdrawing(null) }
   }
 
+  const [showBulkImport, setShowBulkImport] = useState(false)
+
   return (
     <div className={styles.page}>
       <div className={styles.header}>
@@ -114,7 +116,10 @@ export default function SchedRoster() {
           <h1 className={styles.title}>My Roster</h1>
           <p className={styles.sub}>{roster.length} official{roster.length !== 1 ? 's' : ''} · {allPending.length} pending</p>
         </div>
-        <Button variant="primary" onClick={() => setShowInvite(true)}>+ Invite Official</Button>
+        <div style={{ display:'flex', gap:8 }}>
+          <Button variant="secondary" onClick={() => setShowBulkImport(true)}>📋 Bulk Import</Button>
+          <Button variant="primary" onClick={() => setShowInvite(true)}>+ Invite Official</Button>
+        </div>
       </div>
 
       {/* Tabs */}
@@ -285,6 +290,16 @@ export default function SchedRoster() {
           onRemove={() => { setProfileOfficial(null); handleRemove(profileOfficial) }}
           removing={removing === profileOfficial.connectionId}
           messagingUid={messagingUid}
+        />
+      )}
+
+      {showBulkImport && (
+        <BulkImportModal
+          open={showBulkImport}
+          onClose={() => setShowBulkImport(false)}
+          schedulerId={user?.uid}
+          schedulerName={profile?.displayName}
+          alreadyConnectedUids={alreadyConnectedUids}
         />
       )}
     </div>
@@ -567,6 +582,209 @@ function AvailabilityModal({ official, onClose }) {
               )
             })}
           </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+// ── Bulk Import Modal ─────────────────────────────────────────────────────────
+// Paste a list of names/emails, select all or some, send invites in bulk
+function BulkImportModal({ open, onClose, schedulerId, schedulerName, alreadyConnectedUids }) {
+  const [step, setStep]         = useState('paste') // 'paste' | 'select' | 'done'
+  const [raw, setRaw]           = useState('')
+  const [parsed, setParsed]     = useState([]) // [{name, email, role}]
+  const [selected, setSelected] = useState({}) // {email: true}
+  const [sending, setSending]   = useState(false)
+  const [results, setResults]   = useState([]) // [{email, status}]
+
+  const parseInput = () => {
+    const lines = raw.split('\n').map(l => l.trim()).filter(Boolean)
+    const entries = lines.map(line => {
+      // Accept: "Name, email@x.com, Role" or "email@x.com" or "Name <email>"
+      const emailMatch = line.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i)
+      const email      = emailMatch ? emailMatch[0].toLowerCase() : null
+      if (!email) return null
+      const withoutEmail = line.replace(emailMatch[0], '').replace(/[<>,"]/g, ' ').trim()
+      const parts = withoutEmail.split(/\s{2,}|,/).map(p => p.trim()).filter(Boolean)
+      const name  = parts[0] ?? ''
+      const role  = parts[1] ?? ''
+      return { name, email, role }
+    }).filter(Boolean)
+    setParsed(entries)
+    const sel = {}
+    entries.forEach(e => { sel[e.email] = true })
+    setSelected(sel)
+    setStep('select')
+  }
+
+  const toggleAll = (val) => {
+    const sel = {}
+    parsed.forEach(e => { sel[e.email] = val })
+    setSelected(sel)
+  }
+
+  const handleSendInvites = async () => {
+    const toInvite = parsed.filter(e => selected[e.email])
+    if (!toInvite.length) { toast.error('Select at least one official'); return }
+    setSending(true)
+    const res = []
+    for (const entry of toInvite) {
+      try {
+        // Check if already on platform
+        const snap = await getDocs(query(collection(db, 'users'), where('email', '==', entry.email)))
+        if (!snap.empty) {
+          // User exists — send connection request directly
+          const existingUid = snap.docs[0].id
+          if (alreadyConnectedUids.includes(existingUid)) {
+            res.push({ email: entry.email, name: entry.name, status: 'already_on_roster' })
+            continue
+          }
+          await sendConnectionRequest(schedulerId, existingUid, 'scheduler-official',
+            `${schedulerName} invited you to their officiating roster on GameCrewHQ.`)
+          res.push({ email: entry.email, name: entry.name, status: 'invited' })
+        } else {
+          // User doesn't exist — add to waitlist with invite flag + send email via Cloud Function
+          await addDoc(collection(db, 'waitlist'), {
+            email:        entry.email,
+            name:         entry.name,
+            role:         entry.role || 'official',
+            source:       'scheduler_import',
+            schedulerId,
+            schedulerName,
+            invitedAt:    serverTimestamp(),
+          })
+          // Also add to allowlist so they can sign up
+          await addDoc(collection(db, 'allowlist'), {
+            email:     entry.email,
+            addedBy:   schedulerId,
+            addedAt:   serverTimestamp(),
+            note:      `Invited by scheduler ${schedulerName}`,
+          })
+          res.push({ email: entry.email, name: entry.name, status: 'email_sent' })
+        }
+      } catch (err) {
+        res.push({ email: entry.email, name: entry.name, status: 'error', error: err.message })
+      }
+    }
+    setResults(res)
+    setSending(false)
+    setStep('done')
+  }
+
+  const invited    = results.filter(r => r.status === 'invited').length
+  const emailSent  = results.filter(r => r.status === 'email_sent').length
+  const alreadyOn  = results.filter(r => r.status === 'already_on_roster').length
+  const errors     = results.filter(r => r.status === 'error').length
+
+  return (
+    <Modal open={open} onClose={onClose} title="Bulk Import Officials" size="md"
+      footer={
+        step === 'paste' ? (
+          <>
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button variant="primary" onClick={parseInput} disabled={!raw.trim()}>Parse List →</Button>
+          </>
+        ) : step === 'select' ? (
+          <>
+            <Button variant="ghost" onClick={() => setStep('paste')}>← Back</Button>
+            <Button variant="primary" loading={sending}
+              onClick={handleSendInvites}
+              disabled={!Object.values(selected).some(Boolean)}>
+              Send {Object.values(selected).filter(Boolean).length} Invite{Object.values(selected).filter(Boolean).length !== 1 ? 's' : ''}
+            </Button>
+          </>
+        ) : (
+          <Button variant="primary" onClick={onClose}>Done</Button>
+        )
+      }
+    >
+      {step === 'paste' && (
+        <div>
+          <div style={{ fontSize:13, color:'var(--color-muted)', marginBottom:12, lineHeight:1.6 }}>
+            Paste a list of officials — one per line. Accepted formats:
+            <ul style={{ margin:'8px 0 0 16px', padding:0 }}>
+              <li><code>email@example.com</code></li>
+              <li><code>John Smith, john@example.com, Referee</code></li>
+              <li><code>John Smith &lt;john@example.com&gt;</code></li>
+            </ul>
+          </div>
+          <textarea
+            style={{
+              width:'100%', height:200, padding:'10px 12px', borderRadius:8,
+              border:'1.5px solid var(--color-border)', background:'var(--color-surface)',
+              fontSize:13, fontFamily:'monospace', resize:'vertical',
+              outline:'none', boxSizing:'border-box', color:'var(--color-text)',
+            }}
+            placeholder={`john@example.com\nJane Smith, jane@example.com, Scorekeeper\nMike Jones <mike@example.com>`}
+            value={raw}
+            onChange={e => setRaw(e.target.value)}
+          />
+          <div style={{ fontSize:12, color:'var(--color-muted)', marginTop:8 }}>
+            Officials already on GameCrewHQ will receive a roster invitation immediately. New officials will be added to the allowlist and can sign up at gamecrewhq.com.
+          </div>
+        </div>
+      )}
+
+      {step === 'select' && (
+        <div>
+          <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between', marginBottom:12 }}>
+            <div style={{ fontSize:13, fontWeight:600 }}>{parsed.length} official{parsed.length !== 1 ? 's' : ''} found</div>
+            <div style={{ display:'flex', gap:8 }}>
+              <button onClick={() => toggleAll(true)}
+                style={{ fontSize:12, color:'var(--blue)', background:'none', border:'none', cursor:'pointer' }}>
+                Select all
+              </button>
+              <button onClick={() => toggleAll(false)}
+                style={{ fontSize:12, color:'var(--color-muted)', background:'none', border:'none', cursor:'pointer' }}>
+                Deselect all
+              </button>
+            </div>
+          </div>
+          <div style={{ display:'flex', flexDirection:'column', gap:6, maxHeight:320, overflowY:'auto' }}>
+            {parsed.map(entry => (
+              <div key={entry.email} style={{
+                display:'flex', alignItems:'center', gap:12, padding:'10px 12px',
+                borderRadius:8, border:'1.5px solid var(--color-border)',
+                background: selected[entry.email] ? 'var(--orange-light)' : 'var(--color-surface)',
+                borderColor: selected[entry.email] ? 'var(--orange)' : 'var(--color-border)',
+                cursor:'pointer', transition:'all .13s',
+              }}
+                onClick={() => setSelected(s => ({ ...s, [entry.email]: !s[entry.email] }))}>
+                <input type="checkbox" checked={!!selected[entry.email]} onChange={() => {}}
+                  style={{ width:16, height:16, accentColor:'var(--orange)', cursor:'pointer' }} />
+                <div style={{ flex:1 }}>
+                  <div style={{ fontSize:13.5, fontWeight:600 }}>{entry.name || entry.email}</div>
+                  {entry.name && <div style={{ fontSize:12, color:'var(--color-muted)' }}>{entry.email}</div>}
+                </div>
+                {entry.role && (
+                  <span style={{ fontSize:11.5, color:'var(--color-muted)', background:'var(--color-surface-2)', padding:'2px 8px', borderRadius:20 }}>
+                    {entry.role}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {step === 'done' && (
+        <div style={{ display:'flex', flexDirection:'column', gap:12 }}>
+          <div style={{ fontSize:15, fontWeight:700, marginBottom:4 }}>✅ Invites sent!</div>
+          {[
+            invited   > 0 && { label:`${invited} roster invitation${invited > 1 ? 's' : ''} sent`, sub:'Officials already on GameCrewHQ', color:'var(--green)' },
+            emailSent > 0 && { label:`${emailSent} new official${emailSent > 1 ? 's' : ''} added to allowlist`, sub:'They can now sign up at gamecrewhq.com', color:'var(--blue)' },
+            alreadyOn > 0 && { label:`${alreadyOn} already on your roster`, sub:'Skipped', color:'var(--color-muted)' },
+            errors    > 0 && { label:`${errors} failed`, sub:'Check emails and try again', color:'var(--orange)' },
+          ].filter(Boolean).map(item => (
+            <div key={item.label} style={{ display:'flex', gap:12, padding:'10px 14px', background:'var(--color-surface-2)', borderRadius:8, border:'1px solid var(--color-border)' }}>
+              <div style={{ width:8, height:8, borderRadius:'50%', background:item.color, marginTop:5, flexShrink:0 }} />
+              <div>
+                <div style={{ fontSize:13.5, fontWeight:600, color:item.color }}>{item.label}</div>
+                <div style={{ fontSize:12, color:'var(--color-muted)' }}>{item.sub}</div>
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </Modal>

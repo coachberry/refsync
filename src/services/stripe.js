@@ -25,7 +25,7 @@ const callFunction = async (name, body) => {
     body:    JSON.stringify(body),
   })
   const data = await res.json()
-  if (!res.ok) throw new Error(data.error ?? `${name} failed`)
+  if (!res.ok) throw new Error(data.error ?? data.message ?? `${name} failed (${res.status})`)
   return data
 }
 
